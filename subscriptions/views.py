@@ -11,6 +11,7 @@ class PlanViewSet(viewsets.ModelViewSet):
 class SubscriptionViewSet(viewsets.ModelViewSet):
     serializer_class = SubscriptionSerializer
     permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
+        if user.role == 'super_admin':
+            return Subscription.objects.all()
         return Subscription.objects.filter(company=self.request.user.company)

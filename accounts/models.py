@@ -20,10 +20,18 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_superuser", True)
         return self.create_user(email, password, **extra_fields)
 
-
 class User(AbstractBaseUser, PermissionsMixin):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
+    ROLE_CHOICES = (
+    ('super_admin', 'Super Admin'),  # YOU
+    ('company_admin', 'Company Admin'),
+    ('hr', 'HR'),
+    ('employee', 'Employee'),
+)
+
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="employee")
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    phone =models.CharField(max_length=20)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True)
 
     email = models.EmailField(unique=True)
