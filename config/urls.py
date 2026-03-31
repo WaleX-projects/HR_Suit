@@ -2,11 +2,11 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from ai_init.views import ai_chat
+from employees.views import EmployeeViewSet,DepartmentViewSet,PositionViewSet
 
-from employees.views import EmployeeViewSet
-from attendance.views import AttendanceViewSet, ShiftViewSet, EmployeeShiftViewSet
+from attendance.views import  ShiftViewSet, EmployeeShiftViewSet,register, recognize,AttendanceViewSet
 from leave.views import LeaveTypeViewSet, LeaveRequestViewSet
-from payroll.views import SalaryViewSet, AllowanceViewSet, DeductionViewSet, PayrollViewSet, PayslipViewSet
 from subscriptions.views import PlanViewSet, SubscriptionViewSet
 from notifications.views import NotificationViewSet
 
@@ -14,7 +14,8 @@ router = DefaultRouter()
 
 # 👥 Employees
 router.register("employees", EmployeeViewSet, basename="employee")
-
+router.register("department",DepartmentViewSet,basename="department")
+router.register("position",PositionViewSet,basename="position")
 # ⏱️ Attendance
 router.register("attendance", AttendanceViewSet, basename="attendance")
 router.register("shifts", ShiftViewSet, basename="shift")
@@ -24,12 +25,7 @@ router.register("employee-shifts", EmployeeShiftViewSet, basename="employee-shif
 router.register("leave-types", LeaveTypeViewSet, basename="leave-type")
 router.register("leave-requests", LeaveRequestViewSet, basename="leave-request")
 
-# 💰 Payroll
-router.register("salaries", SalaryViewSet, basename="salary")
-router.register("allowances", AllowanceViewSet, basename="allowance")
-router.register("deductions", DeductionViewSet, basename="deduction")
-router.register("payrolls", PayrollViewSet, basename="payroll")
-router.register("payslips", PayslipViewSet, basename="payslip")
+
 
 # 💳 Subscriptions
 router.register("plans", PlanViewSet, basename="plan")
@@ -42,9 +38,15 @@ router.register("notifications", NotificationViewSet, basename="notification")
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include(router.urls)),
-    path("api/auth/", include("accounts.urls")),
+    path("api/accounts/", include("accounts.urls")),
     path("api/companies/", include("companies.urls")),
+    path('api/register/', register,name="registration"),
+    path('api/recognize/', recognize,name="recognition"),
+    path('api/accounts/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # 💰 Payroll
+    path('api/', include('payroll.urls')),
+    # urls.py
+    #ai_chat URL
+    path('api/chat/',ai_chat,name="chat-ai"),
 
-    path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-]
+ ]

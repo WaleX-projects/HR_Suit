@@ -1,8 +1,85 @@
+
+
 from rest_framework import serializers
-from .models import Employee
+from .models import Employee, Position, Department
+class DepartmentSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = Department
+        fields = "__all__"
+        read_only_fields = ("id","company")
+    
+    
+
+
+class PositionSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source="department.name", read_only=True)
+    
+    class Meta:
+        model = Position
+        fields = ["id","title","department","department_name"]
+        read_only_fields = ("id","company")
+
+
+
+
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
+    #  Write (input)
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(),
+        write_only=True
+    )
+    position = serializers.PrimaryKeyRelatedField(
+        queryset=Position.objects.all(),
+        write_only=True
+    )
+
+    # 💳 BANK (write-only input)
+    bank_account_number = serializers.CharField(write_only=True)
+    bank_code = serializers.CharField(write_only=True)
+    #  Read (output)
+    department_detail = serializers.CharField(source="department.name", read_only=True)
+    position_detail = serializers.CharField(source="position.title", read_only=True)
+    company_detail = serializers.CharField(source="company.name", read_only=True)
+
+    masked_account_number = serializers.SerializerMethodField()
+    
+
+    def get_masked_account_number(self, obj):
+        if obj.bank_account_number:
+            return "****" + obj.bank_account_number[-4:]
+        return None
+
     class Meta:
         model = Employee
-        fields = "__all__"
+        fields = [
+            "id",
+            "company",
+            "company_detail",
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "hire_date",
+            "status",
+
+            # write-only inputs
+            "department",
+            "position",
+            "bank_account_number",
+            "bank_code",
+
+            # read-only outputs
+            "department_detail",
+            "position_detail",
+
+            # 💳 bank outputs
+            "bank_name",
+            "bank_account_type",
+            "currency",
+            "masked_account_number",
+            "bank_account_name",
+        ]
+        read_only_fields = ["id", "company"]

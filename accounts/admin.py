@@ -21,3 +21,7 @@ class EmployeeInviteAdmin(admin.ModelAdmin):
     search_fields = ('email',)
     readonly_fields = ('token', 'created_at')
 """
+from django.contrib import admin
+#from django.contrib.auth.admin import UserAdmin
+from .models import User
+admin.site.register(User)

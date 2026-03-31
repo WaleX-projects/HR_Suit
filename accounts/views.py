@@ -5,55 +5,57 @@ from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from rest_framework_simplejwt.tokens import RefreshToken
 from accounts.utils import generate_verification_token, confirm_verification_token
-from accounts.serializers import UserSerializer
+from accounts.serializers import UserSerializer,RegisterSerializer
 #from companies.models import Company 
 User = get_user_model()
 
 # -----------------------------
 # REGISTER / SIGNUP
 # -----------------------------
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from django.core.mail import send_mail
+
+
 class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        email = request.data.get("email")
-        password = request.data.get("password")
-        first_name = request.data.get("first_name")
-        last_name = request.data.get("last_name")
-        phone = request.data.get("phone")
-        company = request.data.get("company")
-        
-        
-        if User.objects.filter(email=email).exists():
-            return Response({"error": "Email already exists"}, status=status.HTTP_400_BAD_REQUEST)
+        print("Incoming data:", request.data)
+
+        serializer = RegisterSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            print("Serializer errors:", serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = serializer.save()
+
+            frontend_url = "https://thesuit.netlify.app"
+            #generate token base on user's id and email
+            token = generate_verification_token(user.email)
             
-        company_create, created = Company.objects.get_or_create(
-    name=company,
-    defaults={"email": email}
-)
-        user = User.objects.create_user(
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name,
-            phone=phone
-        )
+            verify_url = f"{frontend_url}/verify-account/{token}"
+            send_mail(
+                "Verify Your Email",
+                f"Click this link to verify your account: {verify_url}",
+                "noreply@Thesuite.com",
+                [user.email],
+            )
 
-        # Generate verification token
-        # AFTER creating the user
-        token = generate_verification_token(user.email)
-        verify_path = f"/api/accounts/verify/{token}/"
-        verify_url = request.build_absolute_uri(verify_path)  # ✅ dynamic full URL
+            return Response(
+                {"message": "User created. Check your email to verify."},
+                status=status.HTTP_201_CREATED
+            )
 
-        send_mail(
-    "Verify Your Email",
-    f"Click this link to verify your account: {verify_url}",
-    "noreply@hrsaas.com",
-        [user.email]
-        )
-        return Response({"message": "User created. Check your email to verify."}, status=status.HTTP_201_CREATED)
-
-
+        except Exception as e:
+            print("ERROR:", str(e))
+            return Response(
+                {"error": "Something went wrong", "details": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 # -----------------------------
 # EMAIL VERIFICATION
 # -----------------------------

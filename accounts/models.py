@@ -23,13 +23,13 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
 
     ROLE_CHOICES = (
-    ('super_admin', 'Super Admin'),  # YOU
+    ('super_admin', 'Super Admin'),  # Me
     ('company_admin', 'Company Admin'),
     ('hr', 'HR'),
     ('employee', 'Employee'),
 )
 
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="employee")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="company_admin")
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     phone =models.CharField(max_length=20)
     company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True)

@@ -27,7 +27,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
-
+PAYSTACK_SECRET_KEY="sk_test_1227fdebab940274c36e42da3b78d7d8b8ae9ca7"
 # Application definition
 
 INSTALLED_APPS = [
@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'payroll',
     'subscriptions',
     'notifications',
+    'ai_init'
 ]
 
 MIDDLEWARE = [
@@ -141,4 +142,25 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 10,
+
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.SearchFilter",
+        "rest_framework.filters.OrderingFilter",
+    ],
 }
+# settings.py
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = 'bestigbekele5@gmail.com'
+EMAIL_HOST_PASSWORD = 'odsp jybe ptfe emdq'
+
+
+
