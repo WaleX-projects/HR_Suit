@@ -2,6 +2,11 @@
 
 from rest_framework import serializers
 from .models import Employee, Position, Department
+from payroll.serializers import (PositionSalarySerializer,
+        PositionSalaryComponentSerializer,
+        SalaryComponentSerializer)
+
+
 class DepartmentSerializer(serializers.ModelSerializer):
     
     class Meta:
@@ -10,17 +15,37 @@ class DepartmentSerializer(serializers.ModelSerializer):
         read_only_fields = ("id","company")
     
     
-
-
 class PositionSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source="department.name", read_only=True)
-    
+    salaries = PositionSalarySerializer(many=True, write_only=True, required=False)
+
     class Meta:
         model = Position
-        fields = ["id","title","department","department_name"]
-        read_only_fields = ("id","company")
+        fields = [
+            "id",
+            "title",
+            "department",
+            "department_name",
+            "salaries",
+        ]
+        read_only_fields = ("id",)
 
+    def create(self, validated_data):
+        salaries_data = validated_data.pop("salaries", [])
 
+        position = Position.objects.create(**validated_data)
+
+        company = position.department.company
+
+        for salary_data in salaries_data:
+            PositionSalarySerializer().create({
+                **salary_data,
+            }, context={
+                "position": position,
+                "company": company
+            })
+
+        return position
 
 
 
@@ -43,7 +68,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     department_detail = serializers.CharField(source="department.name", read_only=True)
     position_detail = serializers.CharField(source="position.title", read_only=True)
     company_detail = serializers.CharField(source="company.name", read_only=True)
-
+    face_verified = serializers.BooleanField(read_only=True) 
     masked_account_number = serializers.SerializerMethodField()
     
 
@@ -64,6 +89,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "phone",
             "hire_date",
             "status",
+            "face_verified",
+            
 
             # write-only inputs
             "department",

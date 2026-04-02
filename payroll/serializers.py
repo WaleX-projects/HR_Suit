@@ -19,21 +19,40 @@ class SalaryComponentSerializer(serializers.ModelSerializer):
         model = SalaryComponent
         fields = "__all__"
 
-
 class PositionSalaryComponentSerializer(serializers.ModelSerializer):
+    component_id = serializers.UUIDField(write_only=True)
     component = SalaryComponentSerializer(read_only=True)
 
     class Meta:
         model = PositionSalaryComponent
-        fields = "__all__"
+        fields = ["id", "component", "component_id"]
 
 
 class PositionSalarySerializer(serializers.ModelSerializer):
-    components = PositionSalaryComponentSerializer(many=True, read_only=True)
+    components = PositionSalaryComponentSerializer(many=True)
 
     class Meta:
         model = PositionSalary
-        fields = "__all__"
+        fields = ["id", "basic_salary", "components"]
+
+    def create(self, validated_data):
+        components_data = validated_data.pop("components", [])
+        position = self.context.get("position")
+        company = self.context.get("company")
+
+        position_salary = PositionSalary.objects.create(
+            position=position,
+            company=company,
+            **validated_data
+        )
+
+        for comp in components_data:
+            PositionSalaryComponent.objects.create(
+                position_salary=position_salary,
+                component_id=comp["component_id"]
+            )
+
+        return position_salary
 
 
 class EmployeeSerializer(serializers.ModelSerializer):

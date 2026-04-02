@@ -258,37 +258,36 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
     # =========================
     @action(detail=False, methods=["post"])
     def run(self, request):
-        company_id = request.user.company_id
-        
-        month = request.data.get("month")
-        year = request.data.get("year")
-        print(company_id, month, year)
-
-        if not all([company_id, month, year]):
-            return Response(
-                {"error": "company, month, year required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        
-
         try:
+            print("DATA:", request.data)
+    
+            company_id = request.user.company_id
+            month = request.data.get("month")
+            year = request.data.get("year")
+    
+            if not month or not year:
+                return Response({"error": "Missing month/year"}, status=400)
+    
+            month = int(month)
+            year = int(year)
+    
             company = Company.objects.get(id=company_id)
-        except Company.DoesNotExist:
+    
+            payroll = generate_payroll(company, year, month)
+    
             return Response(
-                {"error": "Company not found"},
-                status=status.HTTP_404_NOT_FOUND
+                PayrollRunSerializer(payroll).data,
+                status=200
             )
-
-        payroll = generate_payroll(company, int(year), int(month))
-
-        return Response(
-            PayrollRunSerializer(payroll).data,
-            status=status.HTTP_200_OK
-        )
-        
-        
-        
+    
+        except Exception as e:
+            print("ERROR:", str(e))  # 👈 VERY IMPORTANT
+            return Response(
+                {"error": str(e)},
+                status=400
+            )
+            
+            
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404

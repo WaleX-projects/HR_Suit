@@ -22,6 +22,7 @@ class PositionViewSet(viewsets.ModelViewSet):
     serializer_class = PositionSerializer
     permission_classes = [IsAuthenticated, IsAdminOrHR]
     def get_queryset(self):
+        print("frontend data:",self.request.data)
         department_id = self.request.query_params.get("department_id")
         
         if department_id:

@@ -12,9 +12,9 @@ from .views import (
 router = DefaultRouter()
 
 
-router.register("positions", PositionSalaryViewSet)
-router.register("components", SalaryComponentViewSet)
-router.register("payrolls", PayrollRunViewSet)
+router.register("positions", PositionSalaryViewSet, basename="postion")
+router.register("components", SalaryComponentViewSet,basename="components")
+router.register("payrolls", PayrollRunViewSet,basename="payroll")
 
 
 urlpatterns = router.urls

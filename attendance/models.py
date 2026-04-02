@@ -45,12 +45,21 @@ class EmployeeShift(models.Model):
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
     
     
+import uuid
+from django.db import models
+from companies.models import Company
+
+
 class Holiday(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True)
+
     name = models.CharField(max_length=255)
     date = models.DateField()
 
+    is_global = models.BooleanField(default=False)
+    is_recurring = models.BooleanField(default=True)
+
     def __str__(self):
-        return self.name    
+        return self.name

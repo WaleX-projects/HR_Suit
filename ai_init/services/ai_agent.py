@@ -22,7 +22,7 @@ def run_agent(user, message: str):
 
     # 3. CONVERSATION HISTORY: Fetch last 15 messages for short-term recall
     db_history = ChatMessage.objects.filter(user=user).order_by("-created_at")[:15]
-    
+    print(db_history)
     formatted_history = []
     for msg in reversed(db_history):
         # Gemini strictly requires "user" and "model" roles

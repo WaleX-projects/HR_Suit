@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
-from .models import Attendance, Shift, EmployeeShift
-from .serializers import AttendanceSerializer, ShiftSerializer, EmployeeShiftSerializer
+from .models import Attendance, Shift, EmployeeShift, Holiday
+from .serializers import AttendanceSerializer, ShiftSerializer, EmployeeShiftSerializer,HolidaySerializer
 from .utils import model, read_image, collection,client
 
 from rest_framework.decorators import api_view,permission_classes
@@ -91,6 +91,7 @@ logger = logging.getLogger(__name__)
 def register(request):
     try:
         employee_id = request.data.get("employee_id")
+       
         file = request.FILES.get("file")
 
         if not employee_id or not file:
@@ -102,9 +103,15 @@ def register(request):
         except ValueError:
             return Response({"success": False, "message": "Invalid employee_id"}, status=400)
 
-        if not Employee.objects.filter(id=employee_uuid).exists():
-            return Response({"success": False, "message": "Employee not found"}, status=404)
-
+        
+        # -------- fetch employee --------
+        try:
+            employee = Employee.objects.get(id=employee_uuid)
+        except Employee.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Employee not found"},
+                status=404
+            )
         # -------- image --------
         try:
             img = read_image(file)
@@ -138,7 +145,7 @@ def register(request):
             embeddings=[embedding],
             metadatas=[{"employee_id": str(employee_uuid)}]
         )
-
+        employee.face_verified = True
         return Response({"success": True, "message": "Face registered"}, status=201)
 
     except Exception as e:
@@ -257,3 +264,60 @@ def recognize(request):
     except Exception as e:
         logger.exception(e)
         return Response({"success": False, "error": str(e)}, status=500)
+        
+        
+from django.db.models import Q
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
+
+from .models import Holiday
+from .serializers import HolidaySerializer
+
+
+class HolidayViewSet(viewsets.ModelViewSet):
+    serializer_class = HolidaySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # 👑 Super admin → sees everything
+        if user.role == "super_admin":
+            return Holiday.objects.all().order_by("-date")
+
+        # 🏢 Company users → global + their own
+        return Holiday.objects.filter(
+            Q(is_global=True) | Q(company=user.company)
+        ).order_by("-date")
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        is_global = serializer.validated_data.get("is_global", False)
+
+        # ❌ Prevent non-super-admin from creating global holidays
+        if is_global and user.role != "super_admin":
+            raise PermissionDenied("Only super admin can create global holidays")
+
+        # ✅ Save correctly
+        if is_global:
+            serializer.save(company=None, is_global=True)
+        else:
+            serializer.save(company=user.company, is_global=False)
+        def perform_update(self, serializer):
+            instance = self.get_object()
+            user = self.request.user
+        
+            if instance.is_global and user.role != "super_admin":
+                raise PermissionDenied("You cannot edit global holidays")
+        
+            serializer.save()
+        
+        
+        def perform_destroy(self, instance):
+            user = self.request.user
+        
+            if instance.is_global and user.role != "super_admin":
+                raise PermissionDenied("You cannot delete global holidays")
+        
+            instance.delete()    

@@ -1,9 +1,15 @@
 from rest_framework import serializers
-from .models import Attendance, Shift, EmployeeShift
+from .models import Attendance, Shift, EmployeeShift,Holiday
 
 from django.utils.timezone import localtime
 
-
+class HolidaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Holiday
+        fields = ["id", "name", "date", "is_global"]
+        
+        
+        
 class AttendanceSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source="employee.first_name", read_only=True)
     clock_in_time = serializers.SerializerMethodField()

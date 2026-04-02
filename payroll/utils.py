@@ -1,5 +1,7 @@
 import calendar
 from datetime import date
+from django.utils import timezone
+
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
@@ -13,7 +15,23 @@ from .models import (
     PositionSalary
 )
 
+# payroll/rules/tax.py
+from decimal import Decimal
 
+def calculate_paye(annual_income):
+    """
+    Nigerian PAYE simplified
+    """
+    if annual_income <= 300000:
+        return annual_income * Decimal("0.07")
+    elif annual_income <= 600000:
+        return annual_income * Decimal("0.11")
+    elif annual_income <= 1100000:
+        return annual_income * Decimal("0.15")
+    else:
+        return annual_income * Decimal("0.19")
+        
+        
 def get_working_days(company, year, month):
     total_days = calendar.monthrange(year, month)[1]
 
@@ -59,7 +77,8 @@ def calculate_attendance(employee, working_days):
 @transaction.atomic
 def generate_payroll(company, year, month):
 
-    today = date.today()
+    
+    today = timezone.localdate()
     current_year = today.year
     current_month = today.month
 
@@ -142,6 +161,22 @@ def generate_payroll(company, year, month):
                 component_type="deduction",
                 amount=attendance_deduction
             )
+            
+        net_salary = basic_salary + total_allowance - total_deduction
+        # =========================
+        # 💰 TAX CALCULATION
+        # =========================
+        tax = calculate_paye(net_salary)
+
+        if tax > 0:
+            total_deduction += tax
+
+            PayslipItem.objects.create(
+                payslip=payslip,
+                name="PAYE Tax",
+                component_type="deduction",
+                amount=tax
+            )
 
         # Salary components
         for item in position_salary.components.all():
@@ -164,8 +199,8 @@ def generate_payroll(company, year, month):
                 amount=amount
             )
 
+        
         net_salary = basic_salary + total_allowance - total_deduction
-
         payslip.total_allowance = total_allowance
         payslip.total_deduction = total_deduction
         payslip.net_salary = net_salary

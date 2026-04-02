@@ -27,7 +27,7 @@ class Employee(models.Model):
     last_name = models.CharField(max_length=100)
     email = models.EmailField()
     phone = models.CharField(max_length=20)
-
+    face_verified = models.BooleanField(default=False)
     department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True)
     # =========================
     # 💳 BANK DETAILS

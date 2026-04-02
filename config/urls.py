@@ -5,7 +5,7 @@ from rest_framework.routers import DefaultRouter
 from ai_init.views import ai_chat
 from employees.views import EmployeeViewSet,DepartmentViewSet,PositionViewSet
 
-from attendance.views import  ShiftViewSet, EmployeeShiftViewSet,register, recognize,AttendanceViewSet
+from attendance.views import  ShiftViewSet, EmployeeShiftViewSet,register, recognize,AttendanceViewSet,HolidayViewSet
 from leave.views import LeaveTypeViewSet, LeaveRequestViewSet
 from subscriptions.views import PlanViewSet, SubscriptionViewSet
 from notifications.views import NotificationViewSet
@@ -20,10 +20,12 @@ router.register("position",PositionViewSet,basename="position")
 router.register("attendance", AttendanceViewSet, basename="attendance")
 router.register("shifts", ShiftViewSet, basename="shift")
 router.register("employee-shifts", EmployeeShiftViewSet, basename="employee-shift")
+router.register(r'holidays', HolidayViewSet, basename='holidays')
 
 # 🧾 Leave
-router.register("leave-types", LeaveTypeViewSet, basename="leave-type")
-router.register("leave-requests", LeaveRequestViewSet, basename="leave-request")
+
+router.register(r"leave-types", LeaveTypeViewSet,basename="leave-types")
+router.register(r"leaves", LeaveRequestViewSet,basename="leaves")
 
 
 
