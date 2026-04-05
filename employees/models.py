@@ -14,7 +14,8 @@ class Position(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company = models.ForeignKey(Company, on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
-    department = models.ForeignKey(Department, on_delete=models.CASCADE)
+    is_single_role = models.BooleanField(default=False)
+    department = models.ForeignKey(Department, on_delete=models.CASCADE,related_name="positions" )
 
 
 class Employee(models.Model):
@@ -33,7 +34,7 @@ class Employee(models.Model):
     # 💳 BANK DETAILS
     # =========================
     
-    position = models.ForeignKey(Position, on_delete=models.SET_NULL, null=True)
+    position = models.ForeignKey(Position, on_delete=models.SET_NULL, null=True,related_name="employee")
     bank_name = models.CharField(
         max_length=150,
         blank=True,

@@ -95,6 +95,7 @@ class LoginView(APIView):
 
         refresh = RefreshToken.for_user(user)
         return Response({
+            "message":f"login successfully, welcome {user.first_name}",
             "refresh": str(refresh),
             "access": str(refresh.access_token),
         }, status=status.HTTP_200_OK)

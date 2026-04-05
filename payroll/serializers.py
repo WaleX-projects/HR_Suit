@@ -30,15 +30,19 @@ class PositionSalaryComponentSerializer(serializers.ModelSerializer):
 
 class PositionSalarySerializer(serializers.ModelSerializer):
     components = PositionSalaryComponentSerializer(many=True)
-
+    component = serializers.PrimaryKeyRelatedField(queryset=SalaryComponent.objects.all())
     class Meta:
         model = PositionSalary
         fields = ["id", "basic_salary", "components"]
 
     def create(self, validated_data):
         components_data = validated_data.pop("components", [])
+
         position = self.context.get("position")
         company = self.context.get("company")
+
+        if not position or not company:
+            raise serializers.ValidationError({"error": "Position and Company context required"})
 
         position_salary = PositionSalary.objects.create(
             position=position,
@@ -47,10 +51,12 @@ class PositionSalarySerializer(serializers.ModelSerializer):
         )
 
         for comp in components_data:
-            PositionSalaryComponent.objects.create(
-                position_salary=position_salary,
-                component_id=comp["component_id"]
-            )
+            component_id = comp.get("component_id") or comp.get("id")  # support both formats
+            if component_id:
+                PositionSalaryComponent.objects.create(
+                    position_salary=position_salary,
+                    component_id=component_id
+                )
 
         return position_salary
 

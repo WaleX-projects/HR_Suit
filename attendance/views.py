@@ -146,6 +146,7 @@ def register(request):
             metadatas=[{"employee_id": str(employee_uuid)}]
         )
         employee.face_verified = True
+        employee.save()
         return Response({"success": True, "message": "Face registered"}, status=201)
 
     except Exception as e:

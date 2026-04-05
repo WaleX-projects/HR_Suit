@@ -16,21 +16,42 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework import status
+import requests
+from django.conf import settings
+
+
+from django.db.models import Count, Sum, DecimalField
+from django.db.models.functions import Coalesce
+from rest_framework import viewsets
+
 class PositionViewSet(viewsets.ModelViewSet):
-    """ crud event for positions of employee """
-    queryset = Position.objects.all().order_by("title")
     serializer_class = PositionSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrHR]
+    
     def get_queryset(self):
-        print("frontend data:",self.request.data)
-        department_id = self.request.query_params.get("department_id")
+        user = self.request.user
+        queryset = Position.objects.filter(company=self.request.user.company)
+        queryset = queryset.annotate(
+            total_employees=Count('employee', distinct=True),
+            total_salary_cost=Coalesce(
+                Sum('salary__basic_salary'), # Ensure this matches your model field
+                0, 
+                output_field=DecimalField()
+            )
+        ).prefetch_related('salary').order_by("title") # Added prefetch here!
         
+        department_id = self.request.query_params.get("department_id")
         if department_id:
-            return Position.objects.filter(department_id=department_id)
-        return self.queryset    
-    
-    
-    
+            queryset = queryset.filter(department_id=department_id)
+                
+        
+        return queryset
+
+
     def perform_create(self,serializer):
         user = self.request.user
         serializer.save(company= user.company)
@@ -39,28 +60,23 @@ class PositionViewSet(viewsets.ModelViewSet):
 
 
 class DepartmentViewSet(viewsets.ModelViewSet):
-    queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrHR]
-    def get_queryset(self):
-        user = self.request.user
-        
-        return Department.objects.filter(company=user.company)
-        
-    
-    def perform_create(self, serializer):
-        user = self.request.user
+    permission_class = [IsAuthenticated, IsAdminOrHR]
 
-        serializer.save(company=user.company)
+    def get_queryset(self):
+        # We filter first, then count the related positions
+        # Using 'position' based on your previous error log
+        return Department.objects.filter(
+            company=self.request.user.company
+        ).annotate(
+            total_positions=Count('positions') 
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(company=self.request.user.company)
+
         
-        
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import SearchFilter, OrderingFilter
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework import status
-import requests
-from django.conf import settings
+
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer

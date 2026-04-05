@@ -19,16 +19,18 @@ class CompanyListView(generics.ListAPIView):
         
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-
+from django.utils import timezone
 from employees.models import Employee
-from payroll.models import PayrollRun, Company
+from payroll.models import PayrollRun,Payslip
 from leave.models import LeaveRequest  # if you have it
-
+from django.db.models import Sum
 
 @api_view(["GET"])
 def dashboard_stats(request):
     company_id = request.user.company_id
-
+    today = timezone.localdate()
+    current_year = today.year
+    current_month = today.month
     # Employees
     total_employees = Employee.objects.filter(
         company_id=company_id,
@@ -36,10 +38,12 @@ def dashboard_stats(request):
     ).count()
 
     # Payroll runs
-    total_payroll = PayrollRun.objects.filter(
-        company_id=company_id,
-        status="processed"
-    ).count()
+    total_payroll = Payslip.objects.filter(
+        payroll__company_id=company_id,
+        payroll__month=current_month,
+        payroll__year=current_year,
+        payroll__status="processed"
+    ).aggregate(total=Sum("net_salary"))["total"] or 0
 
     # Leaves (SAFE)
     active_leaves = 0
@@ -49,7 +53,7 @@ def dashboard_stats(request):
             status="approved"
         ).count()
 
-    # Companies (FOR ADMIN ONLY — optional)
+    # Companies (FOR SUPER ADMIN ONLY — optional)
     active_companies = 1  # each tenant only sees themselves
 
     return Response({
