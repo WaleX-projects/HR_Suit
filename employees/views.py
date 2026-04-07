@@ -55,6 +55,17 @@ class PositionViewSet(viewsets.ModelViewSet):
     def perform_create(self,serializer):
         user = self.request.user
         serializer.save(company= user.company)
+        
+        
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        print("🔥 BACKEND RESPONSE DATA:")
+        print(serializer.data)
+
+        return Response(serializer.data)     
+        
 
 
 
@@ -191,4 +202,45 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 {"detail": "Something went wrong"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-    
+
+
+
+
+
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
+
+from .serializers import BulkEmployeeUploadSerializer
+
+
+class BulkEmployeeCreateView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
+    """
+    def post(self, request, *args, **kwargs):
+        serializer = BulkEmployeeUploadSerializer(data=request.data)
+
+        if serializer.is_valid():
+            result = serializer.save()
+            return Response(result, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 
+    """    
+    def post(self, request, *args, **kwargs):
+        print("=== BULK UPLOAD REQUEST RECEIVED ===")
+        print("Files:", request.FILES)
+        print("Data:", request.data)
+        
+        serializer = BulkEmployeeUploadSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            print("Serializer is valid")
+            result = serializer.save()
+            print("Bulk upload successful:", result)
+            return Response(result, status=201)
+        else:
+            print("Serializer errors:", serializer.errors)
+            return Response(serializer.errors, status=400)      

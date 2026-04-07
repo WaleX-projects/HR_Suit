@@ -52,8 +52,7 @@ class SalaryComponent(models.Model):
     component_type = models.CharField(max_length=20, choices=COMPONENT_TYPE)
 
     is_percentage = models.BooleanField(default=False)
-    value = models.DecimalField(max_digits=10, decimal_places=2)
-
+    
     def __str__(self):
         return self.name
 
@@ -74,7 +73,8 @@ class PositionSalaryComponent(models.Model):
         SalaryComponent,
         on_delete=models.CASCADE
     )
-
+    value = models.DecimalField(max_digits=10, decimal_places=2)
+    
     def __str__(self):
         # FIXED: removed position_name (does not exist anymore)
         return f"{self.position_salary.position.title} - {self.component.name}"

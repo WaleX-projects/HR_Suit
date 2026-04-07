@@ -2,6 +2,7 @@
 
 from rest_framework import serializers
 from .models import Employee, Position, Department
+from payroll.models import PositionSalary,SalaryComponent,PositionSalaryComponent
 from payroll.serializers import (PositionSalarySerializer,
         PositionSalaryComponentSerializer,
         SalaryComponentSerializer)
@@ -17,101 +18,129 @@ class DepartmentSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "company")
 
 
-
-
+class ComponentInputSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    value = serializers.DecimalField(max_digits=10, decimal_places=2)
 class PositionSerializer(serializers.ModelSerializer):
-    department_name = serializers.CharField(source="department.name", read_only=True)
-    
-    salary = PositionSalarySerializer(many=True, required=False, allow_null=True)
+    # WRITE
+    components = ComponentInputSerializer(many=True, write_only=True)
 
-    total_employees = serializers.IntegerField(read_only=True)
-    total_salary_cost = serializers.DecimalField(
-        max_digits=12, decimal_places=2, read_only=True
+    # READ
+    components_display = serializers.SerializerMethodField()
+
+    # WRITE
+    basic_salary = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        write_only=True
+    )
+
+    # READ
+    basic_salary_display = serializers.DecimalField(
+        source="salary.first.basic_salary",
+        max_digits=12,
+        decimal_places=2,
+        read_only=True
     )
 
     class Meta:
         model = Position
         fields = [
-            "id", "title", "department", "department_name",
-            "salary", "total_employees", "total_salary_cost", "is_single_role"
+            "id",
+            "title",
+            "department",
+            "is_single_role",
+
+            "components",           # write
+            "components_display",   # read
+
+            "basic_salary",         # write
+            "basic_salary_display"  # read
         ]
-        read_only_fields = ("id",)
 
+    def get_components_display(self, obj):
+        salary = obj.salary.first()
+        if not salary:
+            return []
+
+        return PositionSalaryComponentSerializer(
+            salary.components.all(),
+            many=True
+        ).data
     def create(self, validated_data):
-        salaries_data = validated_data.pop('salary', [])
+        components_data = validated_data.pop("components", [])
+        basic_salary = validated_data.pop("basic_salary")
 
+        # Create Position
         position = Position.objects.create(**validated_data)
         company = position.department.company
 
-        for salary_data in salaries_data:
-            serializer = PositionSalarySerializer(
-                data=salary_data,
-                context={"position": position, "company": company}
+        # Create PositionSalary
+        position_salary = PositionSalary.objects.create(
+            position=position,
+            company=company,
+            basic_salary=basic_salary,
+        )
+
+        # Create components
+        for comp in components_data:
+            component, _ = SalaryComponent.objects.get_or_create(
+                company=company,
+                name=comp["name"]
             )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
+
+            PositionSalaryComponent.objects.create(
+                position_salary=position_salary,
+                component=component,
+                value=comp["value"]   # ✅ value should be here (IMPORTANT)
+            )
 
         return position
+    
 
+    
+            
+    
     def update(self, instance, validated_data):
-        salaries_data = validated_data.pop('salary', None)
+        components_data = validated_data.pop("components", [])
+        basic_salary = validated_data.pop("basic_salary", None)
 
         # Update Position fields
-        instance.title = validated_data.get('title', instance.title)
-        instance.department = validated_data.get('department', instance.department)
-        instance.is_single_role = validated_data.get('is_single_role', instance.is_single_role)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.save()
 
-        if salaries_data is not None:
-            company = instance.department.company
+        company = instance.department.company
 
-            for salary_data in salaries_data:
-                salary_id = salary_data.get('id')
+        # Get or create salary
+        position_salary, _ = PositionSalary.objects.get_or_create(
+            position=instance,
+            company=company,
+            basic_salary=basic_salary,
+        )
 
-                if salary_id:  
-                    # === UPDATE existing PositionSalary ===
-                    try:
-                        position_salary = PositionSalary.objects.get(
-                            id=salary_id, 
-                            position=instance
-                        )
-                        # Update basic_salary
-                        position_salary.basic_salary = salary_data.get('basic_salary', position_salary.basic_salary)
-                        position_salary.save()
+        # Update basic salary
+        if basic_salary is not None:
+            position_salary.basic_salary = basic_salary
+            position_salary.save()
 
-                        # Replace components (simple approach)
-                        position_salary.components.all().delete()
+        # ❌ Remove old components (important)
+        position_salary.components.all().delete()
 
-                        components_data = salary_data.get('components', [])
-                        for comp in components_data:
-                            # Handle both formats: if frontend sends full component or just component_id
-                            if isinstance(comp, dict):
-                                comp_id = comp.get('component_id') or comp.get('component', {}).get('id')
-                            else:
-                                comp_id = comp
+        # ✅ Recreate components
+        for comp in components_data:
+            component, _ = SalaryComponent.objects.get_or_create(
+                company=company,
+                name=comp["name"]
+            )
 
-                            if comp_id:
-                                PositionSalaryComponent.objects.create(
-                                    position_salary=position_salary,
-                                    component_id=comp_id
-                                )
+            PositionSalaryComponent.objects.create(
+                position_salary=position_salary,
+                component=component,
+                value=comp["value"]
+            )
 
-                    except PositionSalary.DoesNotExist:
-                        # If id is invalid, treat as create
-                        salary_id = None
-
-                if not salary_id:
-                    # === CREATE new PositionSalary ===
-                    serializer = PositionSalarySerializer(
-                        data=salary_data,
-                        context={"position": instance, "company": company}
-                    )
-                    serializer.is_valid(raise_exception=True)
-                    serializer.save()
-
-        return instance
-
-        
+        return instance        
 
 class EmployeeSerializer(serializers.ModelSerializer):
     #  Write (input)
@@ -173,3 +202,122 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "bank_account_name",
         ]
         read_only_fields = ["id", "company"]
+        
+        
+        
+        
+import pandas as pd
+from io import BytesIO
+from rest_framework import serializers
+from django.db import transaction
+from django.utils.dateparse import parse_date
+from .models import Employee, Department, Position
+from companies.models import Company
+
+
+class BulkEmployeeUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(required=True)
+    company = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all(), required=True)
+
+    def validate_file(self, file):
+        if not file.name.lower().endswith(('.xlsx', '.xls', '.csv')):
+            raise serializers.ValidationError("Only Excel (.xlsx, .xls) or CSV files are allowed.")
+        return file
+
+    def create(self, validated_data):
+        file = validated_data['file']
+        company = validated_data['company']
+
+        # Read file
+        try:
+            if file.name.lower().endswith('.csv'):
+                df = pd.read_csv(file)
+            else:
+                df = pd.read_excel(file)
+        except Exception as e:
+            raise serializers.ValidationError(f"Failed to read file: {str(e)}")
+
+        employees_to_create = []
+        errors = []
+
+        with transaction.atomic():
+            for index, row in df.iterrows():
+                row_num = index + 2  # Excel row number for better error messages
+
+                try:
+                    # Get Department
+                    dept_name = str(row.get('department') or row.get('Department') or '').strip()
+                    if not dept_name:
+                        raise ValueError("Department is required")
+
+                    department = Department.objects.get(
+                        company=company,
+                        name__iexact=dept_name
+                    )
+
+                    # Get Position
+                    pos_name = str(row.get('position') or row.get('Position') or '').strip()
+                    if not pos_name:
+                        raise ValueError("Position is required")
+
+                    position = Position.objects.get(
+                        company=company,
+                        title__iexact=pos_name
+                    )
+
+                    # Parse hire_date safely
+                    hire_date_str = row.get('hire_date') or row.get('Hire Date')
+                    hire_date = parse_date(str(hire_date_str)) if hire_date_str else None
+                    if not hire_date:
+                        raise ValueError("Valid hire_date is required (format: YYYY-MM-DD)")
+
+                    # Create Employee instance
+                    employee = Employee(
+                        company=company,
+                        first_name=str(row.get('first_name') or row.get('First Name', '')).strip(),
+                        last_name=str(row.get('last_name') or row.get('Last Name', '')).strip(),
+                        email=str(row.get('email') or row.get('Email', '')).strip(),
+                        phone=str(row.get('phone') or row.get('Phone', '')).strip(),
+                        hire_date=hire_date,
+                        department=department,
+                        position=position,
+                        status=str(row.get('status', 'active')).strip().lower(),
+
+                        # Bank details (optional)
+                        bank_name=str(row.get('bank_name') or '').strip() or None,
+                        bank_account_name=str(row.get('bank_account_name') or '').strip() or None,
+                        bank_account_number=str(row.get('bank_account_number') or '').strip() or None,
+                        bank_code=str(row.get('bank_code') or '').strip() or None,
+                        bank_account_type=str(row.get('bank_account_type', 'savings')).strip().lower(),
+                        currency=str(row.get('currency', 'NGN')).strip().upper(),
+                    )
+
+                    # Basic validation
+                    if not employee.first_name or not employee.last_name or not employee.email:
+                        raise ValueError("First name, Last name and Email are required")
+
+                    employees_to_create.append(employee)
+
+                except Department.DoesNotExist:
+                    errors.append(f"Row {row_num}: Department '{dept_name}' not found.")
+                except Position.DoesNotExist:
+                    errors.append(f"Row {row_num}: Position '{pos_name}' not found.")
+                except Exception as e:
+                    errors.append(f"Row {row_num}: {str(e)}")
+
+            if errors:
+                raise serializers.ValidationError({
+                    "detail": "Some rows failed to process",
+                    "errors": errors[:20]  # Show max 20 errors
+                })
+
+            # Bulk create - much faster
+            if employees_to_create:
+                Employee.objects.bulk_create(employees_to_create)
+
+        return {
+            "message": "Bulk upload successful",
+            "total_rows": len(df),
+            "created": len(employees_to_create),
+            "failed": len(errors)
+        }   

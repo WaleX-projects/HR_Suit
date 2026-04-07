@@ -19,46 +19,30 @@ class SalaryComponentSerializer(serializers.ModelSerializer):
         model = SalaryComponent
         fields = "__all__"
 
+
+        
 class PositionSalaryComponentSerializer(serializers.ModelSerializer):
-    component_id = serializers.UUIDField(write_only=True)
-    component = SalaryComponentSerializer(read_only=True)
+    component = serializers.SerializerMethodField()
 
     class Meta:
         model = PositionSalaryComponent
-        fields = ["id", "component", "component_id"]
+        fields = ["id", "component", "value"]
 
-
+    def get_component(self, obj):
+        return {
+            "id": str(obj.component.id),
+            "name": obj.component.name,
+        }
+        
+        
 class PositionSalarySerializer(serializers.ModelSerializer):
     components = PositionSalaryComponentSerializer(many=True)
-    component = serializers.PrimaryKeyRelatedField(queryset=SalaryComponent.objects.all())
+
     class Meta:
         model = PositionSalary
         fields = ["id", "basic_salary", "components"]
 
-    def create(self, validated_data):
-        components_data = validated_data.pop("components", [])
-
-        position = self.context.get("position")
-        company = self.context.get("company")
-
-        if not position or not company:
-            raise serializers.ValidationError({"error": "Position and Company context required"})
-
-        position_salary = PositionSalary.objects.create(
-            position=position,
-            company=company,
-            **validated_data
-        )
-
-        for comp in components_data:
-            component_id = comp.get("component_id") or comp.get("id")  # support both formats
-            if component_id:
-                PositionSalaryComponent.objects.create(
-                    position_salary=position_salary,
-                    component_id=component_id
-                )
-
-        return position_salary
+    
 
 
 class EmployeeSerializer(serializers.ModelSerializer):

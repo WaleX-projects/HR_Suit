@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from ai_init.views import ai_chat
-from employees.views import EmployeeViewSet,DepartmentViewSet,PositionViewSet
+from employees.views import EmployeeViewSet,DepartmentViewSet,PositionViewSet,BulkEmployeeCreateView
 
 from attendance.views import  ShiftViewSet, EmployeeShiftViewSet,register, recognize,AttendanceViewSet,HolidayViewSet
 from leave.views import LeaveTypeViewSet, LeaveRequestViewSet
@@ -16,6 +16,8 @@ router = DefaultRouter()
 router.register("employees", EmployeeViewSet, basename="employee")
 router.register("department",DepartmentViewSet,basename="department")
 router.register("position",PositionViewSet,basename="position")
+
+
 # ⏱️ Attendance
 router.register("attendance", AttendanceViewSet, basename="attendance")
 router.register("shifts", ShiftViewSet, basename="shift")
@@ -50,5 +52,7 @@ urlpatterns = [
     # urls.py
     #ai_chat URL
     path('api/chat/',ai_chat,name="chat-ai"),
+    #bulk onboarding of employees 
+path('api/bulk/', BulkEmployeeCreateView.as_view(), name='bulk-employee-upload'),
 
  ]

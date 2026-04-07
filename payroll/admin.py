@@ -17,7 +17,7 @@ from .models import (
 # =========================
 @admin.register(SalaryComponent)
 class SalaryComponentAdmin(admin.ModelAdmin):
-    list_display = ("name", "component_type", "value", "is_percentage", "company")
+    list_display = ("name", "component_type", "is_percentage", "company")
     list_filter = ("component_type", "company")
     search_fields = ("name",)
 
