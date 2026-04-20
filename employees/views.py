@@ -125,8 +125,66 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         
         
         
+    @action(detail=True, methods=["post"], url_path="activate")
+    def activate(self, request, pk=None):
+        try:
+            employee = self.get_object()
+            if employee.status == "active":
+                return Response({"message": "Employee is already active"}, status=status.HTTP_200_OK)
+            
+            employee.status = "active"
+            employee.save()
+    
+            return Response(
+                {"message": "Employee activated successfully"},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    
+    @action(detail=True, methods=["post"], url_path="deactivate")
+    def deactivate(self, request, pk=None):
+        try:
+            employee = self.get_object()
+            if employee.status != "active":
+                return Response({"message": "Employee is already inactive"}, status=status.HTTP_200_OK)
+            
+            employee.status = "deactivated"   # or "inactive" if you prefer
+            employee.save()
+    
+            return Response(
+                {"message": "Employee deactivated successfully"},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            print("error", str(e))
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)    
+        """"@action(detail=True, methods=["patch"], url_path="activate")
+    def activate(self, request, pk=None):
+        try:
+            employee = self.get_object()  # 🔥 best practice
+            print(employee.status)
+            employee.status = "active"
+            print(employee.status)
+            employee.save()
+    
+            return Response(
+                {"message": "Employee activated successfully"},
+                status=status.HTTP_200_OK
+            )
+    
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )   
+     
+        
     @action(detail=True, methods=["patch"], url_path="deactivate")
     def deactivate(self, request, pk=None):
+        print(request.data)
         try:
             employee = self.get_object()  # 🔥 best practice
             print(employee.status)
@@ -144,7 +202,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 {"error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+        """
     @action(detail=False, methods=["get"], url_path="resolve-account")
     def resolve_account(self, request):
         bank_code = request.query_params.get("bank_code")
@@ -212,35 +270,32 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser,JSONParser
 
 from .serializers import BulkEmployeeUploadSerializer
 
 
 class BulkEmployeeCreateView(APIView):
-    parser_classes = (MultiPartParser, FormParser)
-    """
-    def post(self, request, *args, **kwargs):
-        serializer = BulkEmployeeUploadSerializer(data=request.data)
-
-        if serializer.is_valid():
-            result = serializer.save()
-            return Response(result, status=status.HTTP_201_CREATED)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 
-    """    
+    parser_classes = (MultiPartParser, FormParser,JSONParser)
     def post(self, request, *args, **kwargs):
         print("=== BULK UPLOAD REQUEST RECEIVED ===")
         print("Files:", request.FILES)
         print("Data:", request.data)
-        
-        serializer = BulkEmployeeUploadSerializer(data=request.data)
-        
+    
+        serializer = BulkEmployeeUploadSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+    
         if serializer.is_valid():
             print("Serializer is valid")
-            result = serializer.save()
-            print("Bulk upload successful:", result)
-            return Response(result, status=201)
+            try:
+                result = serializer.save()
+                print("Bulk upload successful:", result)
+                return Response(result, status=201)
+            except Exception as e:
+                print("🔥 ERROR DURING SAVE:", str(e))
+                return Response({"error": str(e)}, status=400)
         else:
             print("Serializer errors:", serializer.errors)
-            return Response(serializer.errors, status=400)      
+            return Response(serializer.errors, status=400)

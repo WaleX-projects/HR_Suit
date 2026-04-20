@@ -2,6 +2,7 @@
 
 from rest_framework import serializers
 from .models import Employee, Position, Department
+from companies.models import IDCounter
 from payroll.models import PositionSalary,SalaryComponent,PositionSalaryComponent
 from payroll.serializers import (PositionSalarySerializer,
         PositionSalaryComponentSerializer,
@@ -205,32 +206,38 @@ class EmployeeSerializer(serializers.ModelSerializer):
         
         
         
-        
 import pandas as pd
-from io import BytesIO
 from rest_framework import serializers
 from django.db import transaction
 from django.utils.dateparse import parse_date
+
 from .models import Employee, Department, Position
-from companies.models import Company
 
 
 class BulkEmployeeUploadSerializer(serializers.Serializer):
     file = serializers.FileField(required=True)
-    company = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all(), required=True)
 
     def validate_file(self, file):
-        if not file.name.lower().endswith(('.xlsx', '.xls', '.csv')):
-            raise serializers.ValidationError("Only Excel (.xlsx, .xls) or CSV files are allowed.")
+        if not file.name.lower().endswith((".xlsx", ".xls", ".csv")):
+            raise serializers.ValidationError(
+                "Only Excel (.xlsx, .xls) or CSV files are allowed."
+            )
         return file
 
     def create(self, validated_data):
-        file = validated_data['file']
-        company = validated_data['company']
+        file = validated_data["file"]
 
-        # Read file
+        request = self.context.get("request")
+        if not request or not request.user:
+            raise serializers.ValidationError("Request context is required")
+
+        company = request.user.company
+
+        # =========================
+        # READ FILE
+        # =========================
         try:
-            if file.name.lower().endswith('.csv'):
+            if file.name.lower().endswith(".csv"):
                 df = pd.read_csv(file)
             else:
                 df = pd.read_excel(file)
@@ -240,84 +247,151 @@ class BulkEmployeeUploadSerializer(serializers.Serializer):
         employees_to_create = []
         errors = []
 
+        # =========================
+        # PRELOAD DATA (OPTIMIZATION)
+        # =========================
+        departments = {
+            d.name.lower(): d
+            for d in Department.objects.filter(company=company)
+        }
+
+        positions = {
+            p.title.lower(): p
+            for p in Position.objects.filter(company=company)
+        }
+
+        existing_emails = set(
+            Employee.objects.filter(company=company)
+            .values_list("email", flat=True)
+        )
+
+        # =========================
+        # PROCESS ROWS
+        # =========================
         with transaction.atomic():
             for index, row in df.iterrows():
-                row_num = index + 2  # Excel row number for better error messages
+                counter_obj, _ = IDCounter.objects.select_for_update().get_or_create(name=company.name)
+                current_val = counter_obj.last_value
+                row_num = index + 2
 
                 try:
-                    # Get Department
-                    dept_name = str(row.get('department') or row.get('Department') or '').strip()
+                    # Department
+                    dept_name = str(
+                        row.get("department") or row.get("Department") or ""
+                    ).strip().lower()
+
                     if not dept_name:
                         raise ValueError("Department is required")
 
-                    department = Department.objects.get(
-                        company=company,
-                        name__iexact=dept_name
+                    department = departments.get(dept_name)
+                    if not department:
+                        department = Department.objects.create(
+                            company=company,
+                            name=dept_name.title()
+                        )
+                        departments[dept_name] = department
+                    
+                                        # Position
+                    pos_name = str(
+                        row.get("position") or row.get("Position") or ""
+                    ).strip().lower()
+
+                    position = positions.get(pos_name)
+                    if not position:
+                        position = Position.objects.create(
+                            company=company,
+                            title=pos_name.title(),
+                            department=department
+                        )
+                        positions[pos_name] = position
+                    # Hire Date
+                    hire_date_str = row.get("hire_date") or row.get("Hire Date")
+                    hire_date = (
+                        parse_date(str(hire_date_str)) if hire_date_str else None
                     )
 
-                    # Get Position
-                    pos_name = str(row.get('position') or row.get('Position') or '').strip()
-                    if not pos_name:
-                        raise ValueError("Position is required")
-
-                    position = Position.objects.get(
-                        company=company,
-                        title__iexact=pos_name
-                    )
-
-                    # Parse hire_date safely
-                    hire_date_str = row.get('hire_date') or row.get('Hire Date')
-                    hire_date = parse_date(str(hire_date_str)) if hire_date_str else None
                     if not hire_date:
-                        raise ValueError("Valid hire_date is required (format: YYYY-MM-DD)")
+                        raise ValueError(
+                            "Valid hire_date is required (YYYY-MM-DD)"
+                        )
 
-                    # Create Employee instance
+                    # Basic Fields
+                    first_name = str(
+                        row.get("first_name") or row.get("First Name") or ""
+                    ).strip()
+
+                    last_name = str(
+                        row.get("last_name") or row.get("Last Name") or ""
+                    ).strip()
+
+                    email = str(
+                        row.get("email") or row.get("Email") or ""
+                    ).strip().lower()
+
+                    if not first_name or not last_name or not email:
+                        raise ValueError(
+                            "First name, last name and email are required"
+                        )
+
+                    if email in existing_emails:
+                        raise ValueError("Email already exists")
+                    current_val += 1
+                    custom_id = f"{company.name.upper()}-EMP-{current_val:04d}"    
+
                     employee = Employee(
+                        employee_id=custom_id,
                         company=company,
-                        first_name=str(row.get('first_name') or row.get('First Name', '')).strip(),
-                        last_name=str(row.get('last_name') or row.get('Last Name', '')).strip(),
-                        email=str(row.get('email') or row.get('Email', '')).strip(),
-                        phone=str(row.get('phone') or row.get('Phone', '')).strip(),
+                        first_name=first_name,
+                        last_name=last_name,
+                        email=email,
+                        phone=str(row.get("phone") or row.get("Phone") or "").strip(),
                         hire_date=hire_date,
                         department=department,
                         position=position,
-                        status=str(row.get('status', 'active')).strip().lower(),
+                        status=str(row.get("status", "active")).strip().lower(),
 
-                        # Bank details (optional)
-                        bank_name=str(row.get('bank_name') or '').strip() or None,
-                        bank_account_name=str(row.get('bank_account_name') or '').strip() or None,
-                        bank_account_number=str(row.get('bank_account_number') or '').strip() or None,
-                        bank_code=str(row.get('bank_code') or '').strip() or None,
-                        bank_account_type=str(row.get('bank_account_type', 'savings')).strip().lower(),
-                        currency=str(row.get('currency', 'NGN')).strip().upper(),
+                        # Bank details
+                        bank_name=str(row.get("bank_name") or "").strip() or None,
+                        bank_account_name=str(row.get("bank_account_name") or "").strip() or None,
+                        bank_account_number=str(row.get("bank_account_number") or "").strip() or None,
+                        bank_code=str(row.get("bank_code") or "").strip() or None,
+                        bank_account_type=str(
+                            row.get("bank_account_type", "savings")
+                        ).strip().lower(),
+                        currency=str(row.get("currency", "NGN")).strip().upper(),
                     )
 
-                    # Basic validation
-                    if not employee.first_name or not employee.last_name or not employee.email:
-                        raise ValueError("First name, Last name and Email are required")
-
                     employees_to_create.append(employee)
+                    existing_emails.add(email)  # prevent duplicates in same file
+                    counter_obj.last_value = current_val
+                    counter_obj.save()
 
-                except Department.DoesNotExist:
-                    errors.append(f"Row {row_num}: Department '{dept_name}' not found.")
-                except Position.DoesNotExist:
-                    errors.append(f"Row {row_num}: Position '{pos_name}' not found.")
                 except Exception as e:
                     errors.append(f"Row {row_num}: {str(e)}")
 
+            # =========================
+            # HANDLE ERRORS
+            # =========================
             if errors:
                 raise serializers.ValidationError({
-                    "detail": "Some rows failed to process",
-                    "errors": errors[:20]  # Show max 20 errors
+                    "message": "Some rows failed",
+                    "errors": errors[:20]
                 })
 
-            # Bulk create - much faster
+            # =========================
+            # BULK INSERT
+            # =========================
             if employees_to_create:
-                Employee.objects.bulk_create(employees_to_create)
+                Employee.objects.bulk_create(
+                    employees_to_create,
+                    batch_size=500
+                )
 
+        # =========================
+        # RESPONSE
+        # =========================
         return {
             "message": "Bulk upload successful",
             "total_rows": len(df),
             "created": len(employees_to_create),
-            "failed": len(errors)
-        }   
+        }

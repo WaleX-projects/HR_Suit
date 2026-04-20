@@ -56,3 +56,9 @@ class LeaveRequest(models.Model):
 
     def __str__(self):
         return f"{self.employee} - {self.leave_type} ({self.status})"
+        
+        
+        
+        
+        
+        

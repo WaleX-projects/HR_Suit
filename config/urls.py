@@ -4,6 +4,8 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from ai_init.views import ai_chat
 from employees.views import EmployeeViewSet,DepartmentViewSet,PositionViewSet,BulkEmployeeCreateView
+from appsettings.views import CompanySettingsView
+
 
 from attendance.views import  ShiftViewSet, EmployeeShiftViewSet,register, recognize,AttendanceViewSet,HolidayViewSet
 from leave.views import LeaveTypeViewSet, LeaveRequestViewSet
@@ -27,7 +29,7 @@ router.register(r'holidays', HolidayViewSet, basename='holidays')
 # 🧾 Leave
 
 router.register(r"leave-types", LeaveTypeViewSet,basename="leave-types")
-router.register(r"leaves", LeaveRequestViewSet,basename="leaves")
+router.register(r"leave", LeaveRequestViewSet,basename="leaves")
 
 
 
@@ -53,6 +55,9 @@ urlpatterns = [
     #ai_chat URL
     path('api/chat/',ai_chat,name="chat-ai"),
     #bulk onboarding of employees 
-path('api/bulk/', BulkEmployeeCreateView.as_view(), name='bulk-employee-upload'),
+path('api/bulk/', BulkEmployeeCreateView.as_view(), name='bulk-employee-upload'),# In your main urls.py or settings/urls.py
+
+    path('api/settings/', CompanySettingsView.as_view(), name='company-settings'),
+
 
  ]

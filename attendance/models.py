@@ -27,12 +27,17 @@ class Attendance(models.Model):
 
     date = models.DateField(auto_now_add=True)
 
-    clock_in = models.DateTimeField(auto_now_add=True)
+    clock_in = models.TimeField(null=True,blank=True)
+    clock_out = models.TimeField(null=True,blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("employee", "date")
+        
+    def __str__(self):
+        return f"{self.employee.first_name} clocked in at {self.clock_in} and clocked out {self.clock_out} on {self.date}"
+        
         
 class Shift(models.Model):
     name = models.CharField(max_length=100)

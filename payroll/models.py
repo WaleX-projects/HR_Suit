@@ -1,38 +1,11 @@
 import uuid
 from django.db import models
-
 from employees.models import Employee, Position
 from companies.models import Company
 
 
 # =========================
-# POSITION SALARY
-# =========================
-class PositionSalary(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    company = models.ForeignKey(
-        Company,
-        on_delete=models.CASCADE,
-        related_name="position_salaries"
-    )
-
-    position = models.ForeignKey(
-        Position,
-        on_delete=models.CASCADE,
-        related_name="salary"
-    )
-
-    basic_salary = models.DecimalField(max_digits=12, decimal_places=2)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.position.title} - {self.basic_salary}"
-
-
-# =========================
-# SALARY COMPONENT
+# 💰 SALARY COMPONENT (MASTER)
 # =========================
 class SalaryComponent(models.Model):
     COMPONENT_TYPE = (
@@ -52,13 +25,66 @@ class SalaryComponent(models.Model):
     component_type = models.CharField(max_length=20, choices=COMPONENT_TYPE)
 
     is_percentage = models.BooleanField(default=False)
-    
+
+    is_active = models.BooleanField(default=True)
+
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.component_type})"
 
 
 # =========================
-# POSITION COMPONENT LINK
+# 🏢 COMPANY DEFAULT STRUCTURE
+# =========================
+class CompanySalaryStructure(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="salary_structures"
+    )
+
+    component = models.ForeignKey(
+        SalaryComponent,
+        on_delete=models.CASCADE
+    )
+
+    default_value = models.DecimalField(max_digits=10, decimal_places=2)
+
+    is_mandatory = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.company.name} - {self.component.name}"
+
+
+# =========================
+# 🧑‍💼 POSITION SALARY
+# =========================
+class PositionSalary(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="position_salaries"
+    )
+
+    position = models.OneToOneField(
+        Position,
+        on_delete=models.CASCADE,
+        related_name="salary"
+    )
+
+    basic_salary = models.DecimalField(max_digits=12, decimal_places=2)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.position.title} - {self.basic_salary}"
+
+
+# =========================
+# 📊 POSITION COMPONENTS
 # =========================
 class PositionSalaryComponent(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -73,15 +99,38 @@ class PositionSalaryComponent(models.Model):
         SalaryComponent,
         on_delete=models.CASCADE
     )
+
     value = models.DecimalField(max_digits=10, decimal_places=2)
-    
+
     def __str__(self):
-        # FIXED: removed position_name (does not exist anymore)
         return f"{self.position_salary.position.title} - {self.component.name}"
 
 
 # =========================
-# PAYROLL RUN
+# 👤 EMPLOYEE OVERRIDES
+# =========================
+class EmployeeSalaryOverride(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="salary_overrides"
+    )
+
+    component = models.ForeignKey(
+        SalaryComponent,
+        on_delete=models.CASCADE
+    )
+
+    value = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.employee} - {self.component.name}"
+
+
+# =========================
+# 📆 PAYROLL RUN
 # =========================
 class PayrollRun(models.Model):
     STATUS = (
@@ -108,7 +157,10 @@ class PayrollRun(models.Model):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
+    class Meta:
+        unique_together = ("company", "month", "year")
+
     def can_edit(self):
         return self.status == "draft"
 
@@ -124,15 +176,40 @@ class PayrollRun(models.Model):
         self.status = "paid"
         self.save()
 
-    class Meta:
-        unique_together = ("company", "month", "year")
-
     def __str__(self):
         return f"{self.company.name} - {self.month}/{self.year}"
 
 
 # =========================
-# PAYSLIP (SNAPSHOT)
+# 🧾 PAYROLL INPUT (VARIABLE DATA)
+# =========================
+class PayrollInput(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    payroll = models.ForeignKey(
+        PayrollRun,
+        on_delete=models.CASCADE,
+        related_name="inputs"
+    )
+
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE
+    )
+
+    component = models.ForeignKey(
+        SalaryComponent,
+        on_delete=models.CASCADE
+    )
+
+    value = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.employee} - {self.component.name}"
+
+
+# =========================
+# 🧾 PAYSLIP (SNAPSHOT)
 # =========================
 class Payslip(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -163,7 +240,7 @@ class Payslip(models.Model):
 
 
 # =========================
-# PAYSLIP ITEMS
+# 🧾 PAYSLIP ITEMS (BREAKDOWN)
 # =========================
 class PayslipItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -174,8 +251,17 @@ class PayslipItem(models.Model):
         related_name="items"
     )
 
+    component = models.ForeignKey(
+        SalaryComponent,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
     name = models.CharField(max_length=255)
+
     component_type = models.CharField(max_length=20)
+
     amount = models.DecimalField(max_digits=10, decimal_places=2)
 
     def __str__(self):

@@ -1,11 +1,19 @@
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.response import Response
-from .models import Company
-from .serializers import CompanySerializer
-from rest_framework.permissions import AllowAny
-from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.generics import RetrieveUpdateAPIView
+from rest_framework.decorators import api_view
 
+from django.utils import timezone
+from django.db.models import Sum
 
+from .models import Company, CompanySettings
+from .serializers import CompanySerializer, CompanySettingsSerializer
+
+from appsettings.models import CompanySettings
+from employees.models import Employee
+from payroll.models import PayrollRun, Payslip
+from leave.models import LeaveRequest  # if you have it
 
 class CompanyListView(generics.ListAPIView):
     serializer_class = CompanySerializer
@@ -17,17 +25,12 @@ class CompanyListView(generics.ListAPIView):
         
         
         
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from django.utils import timezone
-from employees.models import Employee
-from payroll.models import PayrollRun,Payslip
-from leave.models import LeaveRequest  # if you have it
-from django.db.models import Sum
+
 
 @api_view(["GET"])
 def dashboard_stats(request):
-    company_id = request.user.company_id
+    user = request.user
+    company_id = user.company_id
     today = timezone.localdate()
     current_year = today.year
     current_month = today.month
@@ -52,13 +55,30 @@ def dashboard_stats(request):
             employee__company_id=company_id,
             status="approved"
         ).count()
-
-    # Companies (FOR SUPER ADMIN ONLY — optional)
-    active_companies = 1  # each tenant only sees themselves
-
+    if user.role == 'super_admin':
+        active_companies = Company.objects.all().count()
+        
+        return Response({
+            "totalEmployees": total_employees,
+            "activeLeaves": active_leaves,
+            "totalPayroll": total_payroll,
+            "activeCompanies": active_companies,
+        })
     return Response({
         "totalEmployees": total_employees,
         "activeLeaves": active_leaves,
         "totalPayroll": total_payroll,
-        "activeCompanies": active_companies,
     })
+    
+    
+    
+
+
+
+class CompanySettingsView(RetrieveUpdateAPIView):
+    serializer_class = CompanySettingsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        # refactor this with user roles latter
+        return self.request.user.company.settings

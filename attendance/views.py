@@ -14,6 +14,13 @@ from employees.models import Employee
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, filters
 
+from datetime import date
+from django.db.models import Count, Q
+from rest_framework.response import Response
+from rest_framework.decorators import action
+    
+    # ... inside your ViewSet ..
+
 class AttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSerializer
     permission_classes = [IsAuthenticated]
@@ -55,6 +62,49 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(date__lte=end_date)
 
         return queryset
+        
+  
+    @action(methods=["GET"], detail=False)
+    def dashboard(self, request):
+        user = self.request.user
+        today = date.today()
+        
+        # 1. Scope: Only get data for the user's company
+        company_employees = Employee.objects.filter(company=user.company)
+        total_employee_count = company_employees.count()
+        
+        # 2. Get today's attendance records for this company
+        today_attendance = Attendance.objects.filter(
+            employee__company=user.company, 
+            date=today
+        )
+        
+        # 3. Calculate metrics
+        present_count = today_attendance.filter(status="present").count()
+        late_count = today_attendance.filter(status="late").count()
+        
+        # Absent = Total employees minus anyone who checked in today
+        # (Assuming any status like 'present' or 'late' counts as 'not absent')
+        checked_in_ids = today_attendance.values_list('employee_id', flat=True)
+        absent_count = total_employee_count - len(checked_in_ids)
+        
+        # 4. Attendance Rate
+        attendance_rate = 0
+        if total_employee_count > 0:
+            attendance_rate = (present_count + late_count) / total_employee_count * 100
+    
+        data = {
+            "attendance_count_currentday": present_count + late_count,
+            "total_employee_count": total_employee_count,
+            "attendance_rate": round(attendance_rate, 2),
+            "late_count": late_count,
+            "absent_today_count": absent_count
+        }
+        
+        return Response(data)
+    
+            
+        
         
 class ShiftViewSet(viewsets.ModelViewSet):
     serializer_class = ShiftSerializer
@@ -174,30 +224,46 @@ from .utils import model, read_image, collection
 
 logger = logging.getLogger(__name__)
 
+# attendance/views.py
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from django.utils.timezone import now
+import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny]) 
 def recognize(request):
     try:
         file = request.FILES.get("file")
+        # location data
+        latitude = request.data.get("latitude")
+        
+        longitude = request.data.get("longitude")
+        if not all([file,latitude, longitude]):
+            print('error:image required')
+            return Response({"success": False, "message": "Image and/or location data is not available"}, status=400)
 
-        if not file:
-            return Response({"success": False, "message": "Image required"}, status=400)
-
-        # -------- image --------
+        # -------- Process Image & Get Embedding --------
         try:
             img = read_image(file)
+            
         except Exception:
+            print('error:Invalid image')
             return Response({"success": False, "message": "Invalid image"}, status=400)
 
         faces = model.get(img)
-
         if len(faces) == 0:
+            print('error:No face detected')
             return Response({"success": False, "message": "No face detected"}, status=400)
 
         embedding = faces[0].embedding.tolist()
 
-        # -------- search --------
+        # -------- Search in Vector DB (Chroma) --------
         try:
             results = collection.query(
                 query_embeddings=[embedding],
@@ -205,67 +271,99 @@ def recognize(request):
             )
         except Exception as e:
             logger.exception(e)
-            return Response({"success": False, "message": "Face DB error"}, status=500)
+            return Response({"success": False, "message": "Face database error"}, status=500)
 
         if not results.get("ids") or not results["ids"][0]:
-            return Response({"success": False, "message": "No registered faces"}, status=200)
+            return Response({"success": False, "message": "No registered faces found"}, status=200) #issues with the status
 
         employee_id = results["ids"][0][0]
         distance = results["distances"][0][0]
 
         THRESHOLD = 0.6
-
         if distance > THRESHOLD:
             return Response({
                 "success": False,
                 "message": "Face not recognized",
-                "distance": distance
+                "distance": round(distance, 4)
             }, status=200)
 
-        # -------- UUID safe --------
+        # -------- Get Employee --------
         try:
             employee_uuid = uuid.UUID(str(employee_id))
         except ValueError:
-            return Response({"success": False, "message": "Invalid stored ID"}, status=500)
+            return Response({"success": False, "message": "Invalid employee ID"}, status=500)
 
-        employee = Employee.objects.filter(id=employee_uuid).first()
+        employee = Employee.objects.filter(
+            id=employee_uuid, 
+            status="active"
+        ).first()
 
         if not employee:
-            return Response({"success": False, "message": "Employee not found"}, status=404)
+            return Response({"success": False, "message": "Employee not found or inactive"}, status=404)
 
-        # -------- prevent duplicate attendance --------
-        today = now().date()
+        # Get company from employee
+        company = employee.company   # Assuming Employee has company = ForeignKey(Company)
 
-        already_marked = Attendance.objects.filter(
-            employee=employee,
-            created_at__date=today
-        ).exists()
-
-        if already_marked:
+        # -------- Subscription Check (Important for SaaS) --------
+        """
+        subscription = getattr(company, 'subscription', None)
+        if not subscription or not subscription.is_active:
             return Response({
-                "success": True,
-                "status": "already_marked",
-                "message": "Already marked today",
-                "name": employee.first_name
-            }, status=200)
+                "success": False,
+                "message": "Your subscription is inactive. Please upgrade your plan."
+            }, status=403)
+            """
 
-        # -------- mark attendance --------
-        Attendance.objects.create(
+        # -------- Smart Toggle Attendance Logic --------
+        today = now().date()
+        current_time = now().time()
+
+        # Use get_or_create properly
+        attendance, created = Attendance.objects.get_or_create(
             employee=employee,
-            status="present"
+            date=today,
+            defaults={
+                      # Required when creating
+                'clock_in': current_time,
+                'status': Attendance.StatusChoices.PRESENT,
+            }
         )
+
+        action = ""
+        if created:
+            # First recognition today → Check In
+            action = "check_in"
+            message = "Checked in successfully"
+        else:
+            if not attendance.clock_out:
+                # Second recognition → Check Out
+                attendance.clock_out = current_time
+                attendance.save()
+                action = "check_out"
+                message = "Checked out successfully"
+            else:
+                # Already completed
+                action = "already_completed"
+                message = "Attendance already completed for today"
 
         return Response({
             "success": True,
             "status": "verified",
+            "action": action,
+            "message": message,
             "name": employee.first_name,
-            "distance": distance
+            "distance": round(distance, 4),
+            "clock_in": str(attendance.clock_in) if attendance.clock_in else None,
+            "clock_out": str(attendance.clock_out) if attendance.clock_out else None,
         }, status=200)
 
     except Exception as e:
         logger.exception(e)
-        return Response({"success": False, "error": str(e)}, status=500)
-        
+        return Response({
+            "success": False,
+            "message": "Internal server error",
+            "error": str(e)
+        }, status=500)
         
 from django.db.models import Q
 from rest_framework import viewsets
@@ -322,3 +420,12 @@ class HolidayViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied("You cannot delete global holidays")
         
             instance.delete()    
+            
+
+
+@api_view(["GET"])
+def attendance_view(request):
+    employee = Employee.objects.all().count()
+    
+    today_attendance = Attendance.objects.all().count()
+            

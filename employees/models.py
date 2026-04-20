@@ -1,6 +1,6 @@
 import uuid
 from django.db import models
-from companies.models import Company
+from companies.models import Company,IDCounter
 from accounts.models import User
 
 
@@ -20,6 +20,7 @@ class Position(models.Model):
 
 class Employee(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee_id = models.CharField(max_length=100, unique=True, editable=False)
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE)
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
@@ -82,7 +83,23 @@ class Employee(models.Model):
         default="NGN"
     )
     hire_date = models.DateField()
+    
     status = models.CharField(max_length=20, default="active")
+    date_deactivate = models.DateField(null=True, blank=True)
+    
+    
+    def save(self, *args, **kwargs):
+        if not self.employee_id:
+            # 1. Get the next number for this specific company
+            counter = IDCounter()
+            counter.name = self.company
+            new_number = counter.next_id()
+            
+            # 2. Format it: AutoSheck-EMP-0001
+            # :04d ensures the number is at least 4 digits long
+            self.employee_id = f"{(self.company.name).upper()}-EMP-{new_number:04d}"
+            
+        super().save(*args, **kwargs)
     
     @property
     def masked_account_number(self):

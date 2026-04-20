@@ -1,308 +1,465 @@
+# payroll/views.py
+
+from django.shortcuts import get_object_or_404
+from django.db.models import Sum
+from django.http import HttpResponse
+
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from employees.models import Employee
-from attendance.models import Holiday, Attendance
-from companies.models import Company 
-from payroll.utils import get_working_days
-import csv
-from django.http import HttpResponse
-from django.http import HttpResponse
-from attendance.models import Holiday
-from employees.models import Employee
 
-from .utils import get_working_days, calculate_attendance
-from .models import PayrollRun, Payslip
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from django.http import HttpResponse
 
+from employees.models import Employee
+from attendance.models import Attendance, Holiday
 
 from .models import (
-    
-    PositionSalary,
     SalaryComponent,
+    CompanySalaryStructure,
+    PositionSalary,
+    PositionSalaryComponent,
+    EmployeeSalaryOverride,
     PayrollRun,
-    
-    
-    
+    PayrollInput,
+    Payslip,
 )
+
 from .serializers import (
-    EmployeeSerializer,
-    PositionSalarySerializer,
     SalaryComponentSerializer,
-    PayrollRunSerializer,
+    CompanySalaryStructureSerializer,
+    PositionSalarySerializer,
+    PositionSalaryComponentSerializer,
+    EmployeeSalaryOverrideSerializer,
+    PayrollRunListSerializer,
+    PayrollRunDetailSerializer,
+    PayrollInputSerializer,
+    PayslipListSerializer,
+    PayslipDetailSerializer,
     AttendanceSerializer,
     HolidaySerializer,
 )
 
-from .utils import generate_payroll
+# your payroll engine
+# from .services import PayrollService
 
 
-# =========================
-# BASIC CRUD
-# =========================
+# ==========================================================
+# BASE MIXIN
+# ==========================================================
 
-class EmployeeViewSet(viewsets.ModelViewSet):
-    queryset = Employee.objects.all()
-    serializer_class = EmployeeSerializer
+class CompanyScopedMixin:
+    permission_classes = [IsAuthenticated]
 
-
-class PositionSalaryViewSet(viewsets.ModelViewSet):
-    queryset = PositionSalary.objects.all()
-    serializer_class = PositionSalarySerializer
+    def company_id(self):
+        return self.request.user.company_id
 
 
-class SalaryComponentViewSet(viewsets.ModelViewSet):
-    queryset = SalaryComponent.objects.all()
+# ==========================================================
+# SALARY COMPONENTS
+# ==========================================================
+
+class SalaryComponentViewSet(CompanyScopedMixin, viewsets.ModelViewSet):
     serializer_class = SalaryComponentSerializer
 
+    def get_queryset(self):
+        return SalaryComponent.objects.filter(
+            company_id=self.company_id()
+        ).order_by("name")
 
-class AttendanceViewSet(viewsets.ModelViewSet):
-    queryset = Attendance.objects.all()
+    def perform_create(self, serializer):
+        serializer.save(company_id=self.company_id())
+
+
+# ==========================================================
+# COMPANY SALARY STRUCTURE
+# ==========================================================
+
+class CompanySalaryStructureViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
+    serializer_class = CompanySalaryStructureSerializer
+
+    def get_queryset(self):
+        return CompanySalaryStructure.objects.filter(
+            company_id=self.company_id()
+        ).select_related("component")
+
+
+# ==========================================================
+# POSITION SALARY
+# ==========================================================
+
+class PositionSalaryViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
+    serializer_class = PositionSalarySerializer
+
+    def get_queryset(self):
+        return PositionSalary.objects.filter(
+            company_id=self.company_id()
+        ).select_related(
+            "position"
+        ).prefetch_related(
+            "components__component"
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(company_id=self.company_id())
+
+
+# ==========================================================
+# POSITION COMPONENTS
+# ==========================================================
+
+class PositionSalaryComponentViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
+    serializer_class = PositionSalaryComponentSerializer
+
+    def get_queryset(self):
+        return PositionSalaryComponent.objects.filter(
+            position_salary__company_id=self.company_id()
+        ).select_related(
+            "position_salary",
+            "component"
+        )
+
+
+# ==========================================================
+# EMPLOYEE OVERRIDES
+# ==========================================================
+
+class EmployeeSalaryOverrideViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
+    serializer_class = EmployeeSalaryOverrideSerializer
+
+    def get_queryset(self):
+        return EmployeeSalaryOverride.objects.filter(
+            employee__company_id=self.company_id()
+        ).select_related(
+            "employee",
+            "component"
+        )
+
+
+# ==========================================================
+# ATTENDANCE
+# ==========================================================
+
+class AttendanceViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
     serializer_class = AttendanceSerializer
 
+    def get_queryset(self):
+        return Attendance.objects.filter(
+            employee__company_id=self.company_id()
+        ).select_related("employee")
 
-class HolidayViewSet(viewsets.ModelViewSet):
-    queryset = Holiday.objects.all()
+
+# ==========================================================
+# HOLIDAYS
+# ==========================================================
+
+class HolidayViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
     serializer_class = HolidaySerializer
 
-
-class PayrollRunViewSet(viewsets.ModelViewSet):
-    queryset = PayrollRun.objects.all()
-    serializer_class = PayrollRunSerializer
-    
     def get_queryset(self):
-        company_id = self.request.user.company_id
+        return Holiday.objects.filter(
+            company_id=self.company_id()
+        )
 
+
+# ==========================================================
+# PAYROLL INPUTS
+# ==========================================================
+
+class PayrollInputViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
+    serializer_class = PayrollInputSerializer
+
+    def get_queryset(self):
+        return PayrollInput.objects.filter(
+            payroll__company_id=self.company_id()
+        ).select_related(
+            "employee",
+            "component",
+            "payroll"
+        )
+
+
+# ==========================================================
+# PAYROLL RUN
+# ==========================================================
+
+class PayrollRunViewSet(
+    CompanyScopedMixin,
+    viewsets.ModelViewSet
+):
+
+    def get_queryset(self):
         return PayrollRun.objects.filter(
-            company_id=company_id
-            ).prefetch_related(
-                "payslips__employee",
-                "payslips__items"
-        )
-  
+            company_id=self.company_id()
+        ).prefetch_related(
+            "inputs__employee",
+            "inputs__component",
+            "payslips__employee",
+            "payslips__items"
+        ).order_by("-year", "-month")
 
+    def get_serializer_class(self):
+        if self.action in ["list"]:
+            return PayrollRunListSerializer
+        return PayrollRunDetailSerializer
 
+    def perform_create(self, serializer):
+        serializer.save(company_id=self.company_id())
 
-    @action(detail=True, methods=["get"])
-    def export_csv(self, request, pk=None):
-        print("pk__analysis",pk)
-        payroll = self.get_object()
-    
-        year = payroll.year
-        month = payroll.month
-        company = payroll.company
-    
-        employees = Employee.objects.filter(company=company)
-    
-        working_days = get_working_days(company, year, month)
-        total_working_days = len(working_days)
-    
-        # =========================
-        # CREATE WORKBOOK
-        # =========================
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Payroll Report"
-    
-        # =========================
-        # STYLES
-        # =========================
-        bold_big = Font(size=20, bold=True)
-        bold = Font(size=12, bold=True)
-    
-        center = Alignment(horizontal="center", vertical="center")
-    
-        header_fill = PatternFill("solid", fgColor="DDDDDD")
-    
-        border = Border(
-            left=Side(style="thin"),
-            right=Side(style="thin"),
-            top=Side(style="thin"),
-            bottom=Side(style="thin")
-        )
-    
-        # =========================
-        # HEADER SECTION
-        # =========================
-        ws.merge_cells("A1:I1")
-        ws.merge_cells("A2:I2")
-    
-        ws["A1"] = company.name.upper()
-        ws["A2"] = f"PAYROLL REPORT - {month}/{year}"
-    
-        ws["A1"].font = bold_big
-        ws["A1"].alignment = center
-    
-        ws["A2"].font = bold
-        ws["A2"].alignment = center
-    
-        ws.append([])
-    
-        # =========================
-        # TABLE HEADER
-        # =========================
-        headers = [
-            "Employee",
-            "Position",
-            "Working Days",
-            "Absent Days",
-            "present_Days",
-            "Daily Salary",
-            "Basic Salary",
-            "Allowance",
-            "Deduction",
-            "Net Salary",
-            "Account No",
-            "Bank name",
-            "Account name",
-            "Account type"
-        ]
-    
-        ws.append(headers)
-    
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=4, column=col)
-            cell.font = bold
-            cell.fill = header_fill
-            cell.alignment = center
-            cell.border = border
-    
-        # =========================
-        # DATA ROWS
-        # =========================
-        row_num = 5
-    
-        for employee in employees:
-    
-            payslip = payroll.payslips.filter(employee=employee).first()
-            if not payslip:
-                continue
-    
-            absent_days = calculate_attendance(employee, working_days)
-            present_days = total_working_days - absent_days
-    
-            daily_salary = (
-                payslip.basic_salary / total_working_days
-                if total_working_days else 0
-            )
-    
-            row = [
-                f"{employee.first_name} {employee.last_name}",
-                employee.position.title if employee.position else "",
-                total_working_days,
-                absent_days,
-                present_days,
-                round(daily_salary, 2),
-                payslip.basic_salary,
-                payslip.total_allowance,
-                payslip.total_deduction,
-                payslip.net_salary,
-                employee.bank_account_number,
-                employee.bank_name,
-                employee.bank_account_name,
-                employee.bank_account_type
-            ]
-            
-    
-            ws.append(row)
-    
-            # Add borders + alignment
-            for col in range(1, len(headers) + 1):
-                cell = ws.cell(row=row_num, column=col)
-                cell.border = border
-                cell.alignment = center
-    
-            row_num += 1
-    
-        # =========================
-        # RESPONSE FILE
-        # =========================
-        response = HttpResponse(
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    
-        response["Content-Disposition"] = (
-            f'attachment; filename="payroll_{company.name}_{month}_{year}.xlsx"'
-        )
-    
-        wb.save(response)
-    
-        return response
-        
-    @action(detail=True, methods=["post"])
-    def mark_paid(self, request, pk=None):
-        payroll = self.get_object()
-
-        try:
-            
-            payroll.mark_paid()
-            return Response({"message": "Payroll approved"})
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
-            
-    
+    # --------------------------------------------------
+    # PROCESS PAYROLL
+    # --------------------------------------------------
     @action(detail=True, methods=["post"])
     def process(self, request, pk=None):
         payroll = self.get_object()
 
         try:
+            # PayrollService.run_payroll(payroll)
             payroll.process()
-            return Response({"message": "Payroll approved"})
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
 
-    # =========================
-    # RUN PAYROLL ENDPOINT
-    # =========================
-    @action(detail=False, methods=["post"])
-    def run(self, request):
+            return Response({
+                "message": "Payroll processed successfully"
+            })
+
+        except Exception as e:
+            return Response({
+                "error": str(e)
+            }, status=400)
+
+    # --------------------------------------------------
+    # MARK PAID
+    # --------------------------------------------------
+    @action(detail=True, methods=["post"])
+    def mark_paid(self, request, pk=None):
+        payroll = self.get_object()
+
         try:
-            print("DATA:", request.data)
-    
-            company_id = request.user.company_id
-            month = request.data.get("month")
-            year = request.data.get("year")
-    
-            if not month or not year:
-                return Response({"error": "Missing month/year"}, status=400)
-    
-            month = int(month)
-            year = int(year)
-    
-            company = Company.objects.get(id=company_id)
-    
-            payroll = generate_payroll(company, year, month)
-    
-            return Response(
-                PayrollRunSerializer(payroll).data,
-                status=200
-            )
-    
+            payroll.mark_paid()
+
+            return Response({
+                "message": "Payroll marked as paid"
+            })
+
         except Exception as e:
-            print("ERROR:", str(e))  # 👈 VERY IMPORTANT
-            return Response(
-                {"error": str(e)},
-                status=400
+            return Response({
+                "error": str(e)
+            }, status=400)
+
+    # --------------------------------------------------
+    # PREVIEW TOTALS
+    # --------------------------------------------------
+    @action(detail=True, methods=["get"])
+    def summary(self, request, pk=None):
+        payroll = self.get_object()
+
+        totals = payroll.payslips.aggregate(
+            total_basic=Sum("basic_salary"),
+            total_allowance=Sum("total_allowance"),
+            total_deduction=Sum("total_deduction"),
+            total_net=Sum("net_salary"),
+        )
+
+        return Response(totals)
+
+    # --------------------------------------------------
+    # EXPORT EXCEL
+    # --------------------------------------------------
+    @action(detail=True, methods=["get"])
+    def export_excel(self, request, pk=None):
+        payroll = self.get_object()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Payroll"
+
+        ws.append([
+            "Employee",
+            "Basic Salary",
+            "Allowance",
+            "Deduction",
+            "Net Salary",
+        ])
+
+        for slip in payroll.payslips.all():
+            ws.append([
+                str(slip.employee),
+                slip.basic_salary,
+                slip.total_allowance,
+                slip.total_deduction,
+                slip.net_salary,
+            ])
+
+        response = HttpResponse(
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
             )
-            
-            
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
+        )
 
-from employees.models import Employee
-from .models import Payslip
-from .serializers import PayslipSerializer
+        response[
+            "Content-Disposition"
+        ] = f'attachment; filename="payroll_{payroll.month}_{payroll.year}.xlsx"'
 
+        wb.save(response)
+        return response
+
+
+# ==========================================================
+# PAYSLIPS
+# ==========================================================
+
+class PayslipViewSet(
+    CompanyScopedMixin,
+    viewsets.ReadOnlyModelViewSet
+):
+
+    def get_queryset(self):
+        return Payslip.objects.filter(
+            payroll__company_id=self.company_id()
+        ).select_related(
+            "employee",
+            "payroll"
+        ).prefetch_related(
+            "items"
+        ).order_by("-created_at")
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return PayslipDetailSerializer
+        return PayslipListSerializer
+
+
+# ==========================================================
+# EMPLOYEE PAYSLIPS
+# ==========================================================
 
 @api_view(["GET"])
 def employee_payslips(request, employee_id):
-    employee = get_object_or_404(Employee, id=employee_id)
+    employee = get_object_or_404(
+        Employee,
+        id=employee_id,
+        company_id=request.user.company_id
+    )
 
-    payslips = Payslip.objects.filter(employee=employee).select_related("payroll").order_by("-created_at")
-    print("payslip",payslips)
-    serializer = PayslipSerializer(payslips, many=True)
-    print("serialiser",serializer.data)
-    return Response(serializer.data)     
+    payslips = Payslip.objects.filter(
+        employee=employee
+    ).select_related(
+        "payroll"
+    ).prefetch_related(
+        "items"
+    ).order_by("-created_at")
+
+    serializer = PayslipListSerializer(
+        payslips,
+        many=True
+    )
+
+    return Response(serializer.data)
+    
+    
+    
+    
+# payroll/views.py
+# ADD THIS TO YOUR EXISTING views.py
+
+from django.db.models import Sum, Count, Q
+from rest_framework.views import APIView
+
+
+# ==========================================================
+# DASHBOARD VIEW
+# ==========================================================
+
+class PayrollDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        company_id = request.user.company_id
+
+        # --------------------------------------------------
+        # COUNTS
+        # --------------------------------------------------
+        employee_count = Employee.objects.filter(
+            company_id=company_id
+        ).count()
+
+        active_payrolls = PayrollRun.objects.filter(
+            company_id=company_id
+        ).exclude(status="paid").count()
+
+        processed_payrolls = PayrollRun.objects.filter(
+            company_id=company_id,
+            status="processed"
+        ).count()
+
+        # --------------------------------------------------
+        # TOTAL PAYROLL COST
+        # --------------------------------------------------
+        payroll_total = Payslip.objects.filter(
+            payroll__company_id=company_id
+        ).aggregate(
+            total=Sum("net_salary")
+        )["total"] or 0
+
+        # --------------------------------------------------
+        # LATEST PAYROLL
+        # --------------------------------------------------
+        latest = PayrollRun.objects.filter(
+            company_id=company_id
+        ).order_by("-year", "-month").first()
+
+        latest_data = None
+
+        if latest:
+            latest_data = {
+                "id": latest.id,
+                "month": latest.month,
+                "year": latest.year,
+                "status": latest.status,
+                "payslips": latest.payslips.count()
+            }
+
+        # --------------------------------------------------
+        # ATTENDANCE TODAY
+        # --------------------------------------------------
+        from django.utils.timezone import now
+
+        today = now().date()
+
+        attendance_today = Attendance.objects.filter(
+            employee__company_id=company_id,
+            date=today
+        ).count()
+
+        # --------------------------------------------------
+        # RESPONSE
+        # --------------------------------------------------
+        return Response({
+            "employees": employee_count,
+            "active_payrolls": active_payrolls,
+            "processed_payrolls": processed_payrolls,
+            "attendance_today": attendance_today,
+            "total_payroll_paid": payroll_total,
+            "latest_payroll": latest_data
+        })    
