@@ -10,6 +10,7 @@ class Attendance(models.Model):
         PRESENT = "present", "Present"
         LATE = "late", "Late"
         ABSENT = "absent", "Absent"
+        OVERTIME = "overtime","Overtime"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -58,13 +59,39 @@ from companies.models import Company
 class Holiday(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True)
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
 
     name = models.CharField(max_length=255)
     date = models.DateField()
 
+    holiday_type = models.CharField(
+        max_length=50,
+        choices=[
+            ("public", "Public"),
+            ("company", "Company"),
+            ("religious", "Religious"),
+            ("optional", "Optional"),
+        ],
+        default="public"
+    )
+
     is_global = models.BooleanField(default=False)
     is_recurring = models.BooleanField(default=True)
+    is_paid = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+
+    description = models.TextField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["date"]
 
     def __str__(self):
         return self.name

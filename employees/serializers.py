@@ -22,6 +22,13 @@ class DepartmentSerializer(serializers.ModelSerializer):
 class ComponentInputSerializer(serializers.Serializer):
     name = serializers.CharField()
     value = serializers.DecimalField(max_digits=10, decimal_places=2)
+    
+    
+    
+    
+    
+    
+    
 class PositionSerializer(serializers.ModelSerializer):
     # WRITE
     components = ComponentInputSerializer(many=True, write_only=True)
@@ -38,7 +45,7 @@ class PositionSerializer(serializers.ModelSerializer):
 
     # READ
     basic_salary_display = serializers.DecimalField(
-        source="salary.first.basic_salary",
+        source="salary.basic_salary",
         max_digits=12,
         decimal_places=2,
         read_only=True
@@ -60,9 +67,12 @@ class PositionSerializer(serializers.ModelSerializer):
         ]
 
     def get_components_display(self, obj):
-        salary = obj.salary.first()
-        if not salary:
+        try:
+            
+            salary = obj.salary
+        except PositionSalary.DoesNotExist:
             return []
+        
 
         return PositionSalaryComponentSerializer(
             salary.components.all(),

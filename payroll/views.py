@@ -39,9 +39,10 @@ from .serializers import (
     AttendanceSerializer,
     HolidaySerializer,
 )
+from attendance.services import AttendanceService
 
 # your payroll engine
-# from .services import PayrollService
+from .utils import PayrollService
 
 
 # ==========================================================
@@ -226,13 +227,36 @@ class PayrollRunViewSet(
 
     def perform_create(self, serializer):
         serializer.save(company_id=self.company_id())
+        
+    @action(detail=False, methods=["post"])    
+    def run(self,request):
+        month = self.request.data.get('month')
+        year = self.request.data.get('year')
+        company = self.company_id()
+        try:
+            AttendanceService.run_attendance(company,month,year)
+            PayrollService.run_payroll(company,month,year)
+            print("month",month,"year:",year)
+            #payroll.process()
 
+            return Response({
+                "message": "Payroll processed successfully"
+            })
+
+        except Exception as e:
+            print("Error located here",str(e))
+            return Response({
+                "error": str(e)
+            }, status=400)
+            
+    
     # --------------------------------------------------
     # PROCESS PAYROLL
     # --------------------------------------------------
-    @action(detail=True, methods=["post"])
+    """
+    @action(detail=, methods=["post"])
     def process(self, request, pk=None):
-        payroll = self.get_object()
+        
 
         try:
             # PayrollService.run_payroll(payroll)
@@ -246,7 +270,7 @@ class PayrollRunViewSet(
             return Response({
                 "error": str(e)
             }, status=400)
-
+    """
     # --------------------------------------------------
     # MARK PAID
     # --------------------------------------------------

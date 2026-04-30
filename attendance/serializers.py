@@ -75,3 +75,36 @@ class EmployeeShiftSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmployeeShift
         fields = "__all__"
+        
+        
+        
+        
+from rest_framework import serializers
+from .models import Holiday
+
+
+class HolidaySerializer(serializers.ModelSerializer):
+    company_name = serializers.CharField(
+        source="company.name",
+        read_only=True
+    )
+
+    class Meta:
+        model = Holiday
+        fields = [
+            "id",
+            "company",
+            "company_name",
+            "name",
+            "date",
+            "is_global",
+            "is_recurring",
+        ]
+        read_only_fields = ["id", "company"]
+
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError(
+                "Holiday name cannot be empty."
+            )
+        return value        

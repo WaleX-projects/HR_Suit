@@ -198,7 +198,7 @@ class PayslipListSerializer(serializers.ModelSerializer):
     payroll_month = serializers.IntegerField(source="payroll.month", read_only=True)
     payroll_year = serializers.IntegerField(source="payroll.year", read_only=True)
     payroll_status = serializers.CharField(source="payroll.status", read_only=True)
-
+    
     class Meta:
         model = Payslip
         fields = [
@@ -215,7 +215,7 @@ class PayslipListSerializer(serializers.ModelSerializer):
             "net_salary",
             "created_at",
         ]
-
+    
 
 # =====================================================
 # 🧾 PAYSLIP (DETAIL)
@@ -255,20 +255,23 @@ class PayslipDetailSerializer(serializers.ModelSerializer):
 class PayrollRunListSerializer(serializers.ModelSerializer):
     company_detail = CompanyMiniSerializer(source="company", read_only=True)
     payslip_count = serializers.IntegerField(source="payslips.count", read_only=True)
-
+    
     class Meta:
         model = PayrollRun
         fields = [
             "id",
             "company",
             "company_detail",
+           
             "month",
             "year",
             "status",
             "payslip_count",
             "created_at",
         ]
-
+    def get_total_employee_paid(self,obj):
+        company = obj.company
+        return Employee.objects.filter(company=company).count()
 
 # =====================================================
 # 📆 PAYROLL RUN (DETAIL)
@@ -320,3 +323,9 @@ class HolidaySerializer(serializers.ModelSerializer):
     class Meta:
         model = Holiday
         fields = "__all__"
+        
+        
+        
+        
+        
+        

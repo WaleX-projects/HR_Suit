@@ -135,7 +135,6 @@ class EmployeeSalaryOverride(models.Model):
 class PayrollRun(models.Model):
     STATUS = (
         ("draft", "Draft"),
-        ("processed", "Processed"),
         ("paid", "Paid"),
     )
 
@@ -266,3 +265,59 @@ class PayslipItem(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.amount}"
+        
+        
+"""   
+# =========================
+# 🇳🇬 TAX CONFIG
+# =========================
+class TaxBracket(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+
+    min_income = models.DecimalField(max_digits=12, decimal_places=2)
+    max_income = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    rate = models.DecimalField(max_digits=5, decimal_places=2)  # %
+
+    def __str__(self):
+        return f"{self.rate}% ({self.min_income} - {self.max_income})"      
+        
+        
+        
+# =========================
+# 🏦 STATUTORY SETTINGS
+# =========================
+class StatutorySetting(models.Model):
+    company = models.OneToOneField(Company, on_delete=models.CASCADE)
+
+    pension_employee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=8)
+    pension_employer_percent = models.DecimalField(max_digits=5, decimal_places=2, default=10)
+
+    nhf_percent = models.DecimalField(max_digits=5, decimal_places=2, default=2.5)
+
+    def __str__(self):
+        return self.company.name          
+
+# =========================
+# 💳 EMPLOYEE LOANS
+# =========================
+class EmployeeLoan(models.Model):
+    STATUS = (
+        ("ongoing", "Ongoing"),
+        ("completed", "Completed"),
+    )
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    monthly_deduction = models.DecimalField(max_digits=10, decimal_places=2)
+
+    balance = models.DecimalField(max_digits=12, decimal_places=2)
+
+    status = models.CharField(max_length=20, choices=STATUS, default="ongoing")
+
+    def __str__(self):
+        return f"{self.employee} Loan"
+        
+        
+"""

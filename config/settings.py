@@ -180,6 +180,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://walex-projects.github.io",
     "http://13.61.24.57:8080",  # Your production frontend
     # Add more frontend URLs later (e.g., Vercel, custom domain)
+    "http://localhost:2435",
 ]
 
 # Allow credentials (important if you send cookies or Authorization headers)

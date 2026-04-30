@@ -2,7 +2,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from .models import Attendance, Shift, EmployeeShift, Holiday
 from .serializers import AttendanceSerializer, ShiftSerializer, EmployeeShiftSerializer,HolidaySerializer
-from .utils import model, read_image, collection,client
+from .utils import model, read_image, collection,client,is_live
 
 from rest_framework.decorators import api_view,permission_classes
 from rest_framework.response import Response
@@ -18,7 +18,10 @@ from datetime import date
 from django.db.models import Count, Q
 from rest_framework.response import Response
 from rest_framework.decorators import action
-    
+from django.utils import timezone
+
+# Inside your method:
+
     # ... inside your ViewSet ..
 
 class AttendanceViewSet(viewsets.ModelViewSet):
@@ -36,12 +39,12 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-
+        today = timezone.now().date() 
         queryset = Attendance.objects.all().order_by("-date")
 
         # ================= ROLE BASED ACCESS =================
         if user.role in ["company_admin", "hr"]:
-            queryset = queryset.filter(employee__company=user.company)
+            queryset = queryset.filter(employee__company=user.company,date=today)
         else:
             queryset = queryset.filter(employee__user=user)
 
@@ -163,8 +166,13 @@ def register(request):
                 status=404
             )
         # -------- image --------
+  
         try:
             img = read_image(file)
+            if not is_live(img):
+               return Response({"message": "Spoof detected"}, status=403)
+        
+            
         except Exception:
             return Response({"success": False, "message": "Invalid image"}, status=400)
 
@@ -220,7 +228,7 @@ from rest_framework import status
 
 from employees.models import Employee
 from .models import Attendance
-from .utils import model, read_image, collection
+from .utils import model, read_image, collection,is_live
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +248,7 @@ logger = logging.getLogger(__name__)
 def recognize(request):
     try:
         file = request.FILES.get("file")
+        '''
         # location data
         latitude = request.data.get("latitude")
         
@@ -247,19 +256,30 @@ def recognize(request):
         if not all([file,latitude, longitude]):
             print('error:image required')
             return Response({"success": False, "message": "Image and/or location data is not available"}, status=400)
-
+        '''    
         # -------- Process Image & Get Embedding --------
+        
+        
+        
+        #
         try:
             img = read_image(file)
-            
+           # Anti-spoof check
+            #if not is_live(img):
+                
+                #return Response({"message": "Spoof detected"}, status=403)
+        
+        # STEP 2: Face recognition (InsightFace)
+        
         except Exception:
             print('error:Invalid image')
+            print(Exception)
             return Response({"success": False, "message": "Invalid image"}, status=400)
 
         faces = model.get(img)
-        if len(faces) == 0:
-            print('error:No face detected')
-            return Response({"success": False, "message": "No face detected"}, status=400)
+        if len(faces) != 1:
+            print('error:')
+            return Response({"success": False, "message": "Please, just one face"}, status=400)
 
         embedding = faces[0].embedding.tolist()
 
@@ -359,12 +379,14 @@ def recognize(request):
 
     except Exception as e:
         logger.exception(e)
+        print()
         return Response({
             "success": False,
             "message": "Internal server error",
             "error": str(e)
         }, status=500)
-        
+
+
 from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -381,11 +403,11 @@ class HolidayViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        # 👑 Super admin → sees everything
+        # Super Admin sees all holidays
         if user.role == "super_admin":
             return Holiday.objects.all().order_by("-date")
 
-        # 🏢 Company users → global + their own
+        # Company users see global + company holidays
         return Holiday.objects.filter(
             Q(is_global=True) | Q(company=user.company)
         ).order_by("-date")
@@ -394,34 +416,39 @@ class HolidayViewSet(viewsets.ModelViewSet):
         user = self.request.user
         is_global = serializer.validated_data.get("is_global", False)
 
-        # ❌ Prevent non-super-admin from creating global holidays
+        # Only super admin can create global holidays
         if is_global and user.role != "super_admin":
-            raise PermissionDenied("Only super admin can create global holidays")
+            raise PermissionDenied(
+                "Only super admin can create global holidays"
+            )
 
-        # ✅ Save correctly
         if is_global:
             serializer.save(company=None, is_global=True)
         else:
             serializer.save(company=user.company, is_global=False)
-        def perform_update(self, serializer):
-            instance = self.get_object()
-            user = self.request.user
-        
-            if instance.is_global and user.role != "super_admin":
-                raise PermissionDenied("You cannot edit global holidays")
-        
-            serializer.save()
-        
-        
-        def perform_destroy(self, instance):
-            user = self.request.user
-        
-            if instance.is_global and user.role != "super_admin":
-                raise PermissionDenied("You cannot delete global holidays")
-        
-            instance.delete()    
-            
 
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        user = self.request.user
+
+        # Only super admin can edit global holidays
+        if instance.is_global and user.role != "super_admin":
+            raise PermissionDenied(
+                "You cannot edit global holidays"
+            )
+
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+
+        # Only super admin can delete global holidays
+        if instance.is_global and user.role != "super_admin":
+            raise PermissionDenied(
+                "You cannot delete global holidays"
+            )
+
+        instance.delete()
 
 @api_view(["GET"])
 def attendance_view(request):
