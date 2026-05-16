@@ -165,7 +165,8 @@ REST_FRAMEWORK = {
 # ============================
 # CORS SETTINGS (Improved for React)
 # ============================
-FRONTEND_URL = "http://13.60.26.90:8080"
+FRONTEND_URL ="https://thesuit.netlify.app"
+
 
 
 # "https://thesuit.netlify.app"
@@ -177,6 +178,8 @@ FRONTEND_URL = "http://13.60.26.90:8080"
 
 # Better than CORS_ALLOW_ALL_ORIGINS=True (more secure)
 CORS_ALLOWED_ORIGINS = [
+    
+    "http://13.60.26.90:8080",
     "http://localhost:3000",           # React dev server
     "http://127.0.0.1:3000",
     FRONTEND_URL, 
@@ -246,7 +249,15 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': True,
 }
 
-
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
 
 
 

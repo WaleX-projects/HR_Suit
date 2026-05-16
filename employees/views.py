@@ -113,8 +113,15 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if not user.company:
             return Employee.objects.none()
 
-        return Employee.objects.filter(company=user.company)
-
+        #return Employee.objects.filter(company=user.company)
+        return Employee.objects.select_related(
+    "company",
+    "department",
+    "position",
+    "user"
+).filter(
+    company=user.company
+)
     def perform_create(self, serializer):
         
         user = self.request.user

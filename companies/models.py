@@ -33,7 +33,7 @@ class Company(models.Model):
     
     
     def save(self, *args, **kwargs):
-        if not self.employee_id:
+        if not self.company_id:
             # 1. Get the next number for this specific company
             counter = IDCounter()
             counter.name = self.name

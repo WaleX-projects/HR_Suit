@@ -8,8 +8,9 @@ from django.utils import timezone
 from django.utils.timezone import now
 from django.db.models import Count, Q
 
-# Django Filters
+# Django Filters and caching
 from django_filters.rest_framework import DjangoFilterBackend
+from django.core.cache import cache
 
 # DRF Imports
 from rest_framework import viewsets, filters, status
@@ -27,6 +28,9 @@ from .utils import model, read_image, collection, client, is_live, calculate_hav
 from employees.models import Employee
 from companies.models import Company, WorkLocation
 from subscriptions.utils import require_feature
+
+    
+    
 
 class AttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSerializer
@@ -51,7 +55,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
         # ================= ROLE BASED ACCESS =================
         if user.role in ["company_admin", "hr"]:
-            queryset = queryset.filter(employee__company=user.company,date=today)
+            queryset = queryset.filter(employee__company=user.company)
             print(queryset)
         else:
             queryset = queryset.filter(employee__user=user)
@@ -61,6 +65,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         if employee_id:
             employee_id = employee_id.strip("/")
             queryset = queryset.filter(employee_id=employee_id)
+            print("queryset", queryset)
 
         # ================= DATE FILTER =================
         start_date = self.request.query_params.get("start_date")
@@ -77,42 +82,69 @@ class AttendanceViewSet(viewsets.ModelViewSet):
   
     @action(methods=["GET"], detail=False)
     def dashboard(self, request):
-        user = self.request.user
+    
+        user = request.user
         today = date.today()
-        #check of subscription has this feature
+    
         require_feature(user.company, "attendance")
-        # 1. Scope: Only get data for the user's company
-        company_employees = Employee.objects.filter(company=user.company)
+    
+        cache_key = f"attendance_dashboard_{user.company.id}_{today}"
+    
+        cached_data = cache.get(cache_key)
+    
+        # CACHE HIT
+        if cached_data:
+            return Response(cached_data)
+    
+        # ================= DATABASE QUERIES =================
+    
+        company_employees = Employee.objects.filter(
+            company=user.company
+        )
+    
         total_employee_count = company_employees.count()
-        
-        # 2. Get today's attendance records for this company
+    
         today_attendance = Attendance.objects.filter(
-            employee__company=user.company, 
+            employee__company=user.company,
             date=today
         )
-        
-        # 3. Calculate metrics
-        present_count = today_attendance.filter(status="present").count()
-        late_count = today_attendance.filter(status="late").count()
-        
-        # Absent = Total employees minus anyone who checked in today
-        # (Assuming any status like 'present' or 'late' counts as 'not absent')
-        checked_in_ids = today_attendance.values_list('employee_id', flat=True)
+    
+        present_count = today_attendance.filter(
+            status="present"
+        ).count()
+    
+        late_count = today_attendance.filter(
+            status="late"
+        ).count()
+    
+        checked_in_ids = today_attendance.values_list(
+            "employee_id",
+            flat=True
+        )
+    
         absent_count = total_employee_count - len(checked_in_ids)
-        
-        # 4. Attendance Rate
+    
         attendance_rate = 0
+    
         if total_employee_count > 0:
-            attendance_rate = (present_count + late_count) / total_employee_count * 100
+            attendance_rate = (
+                (present_count + late_count)
+                / total_employee_count
+            ) * 100
     
         data = {
-            "attendance_count_currentday": present_count + late_count,
+            "attendance_count_currentday": (
+                present_count + late_count
+            ),
             "total_employee_count": total_employee_count,
             "attendance_rate": round(attendance_rate, 2),
             "late_count": late_count,
             "absent_today_count": absent_count
         }
-        
+    
+        # Cache for 5 minutes
+        cache.set(cache_key, data, timeout=300)
+    
         return Response(data)
     
             
@@ -259,6 +291,9 @@ def register(request):
 # =========================================================
 # LOCATION VERIFICATION
 # =========================================================
+from django.core.cache import cache
+
+
 class VerifyLocationView(APIView):
     permission_classes = [AllowAny]
 
@@ -276,23 +311,45 @@ class VerifyLocationView(APIView):
                 "data": None
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Fetch company
-        company = get_object_or_404(Company, company_id=company_id)
+        cache_key = f"company_location_{company_id}"
 
-        try:
-            location = company.work_location
-            check_if_enable = company.attendance_settings
+        company_data = cache.get(cache_key)
 
-        except WorkLocation.DoesNotExist:
-            return Response({
-                "success": False,
-                "status": "failed",
-                "message": "Work location not configured for this company",
-                "data": None
-            }, status=status.HTTP_404_NOT_FOUND)
+        # CACHE MISS
+        if company_data is None:
+
+            company = get_object_or_404(
+                Company.objects.select_related(
+                    "work_location",
+                    "attendance_settings"
+                ),
+                company_id=company_id
+            )
+
+            try:
+                location = company.work_location
+                settings_obj = company.attendance_settings
+
+            except WorkLocation.DoesNotExist:
+                return Response({
+                    "success": False,
+                    "status": "failed",
+                    "message": "Work location not configured",
+                    "data": None
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            company_data = {
+                "latitude": float(location.latitude),
+                "longitude": float(location.longitude),
+                "radius": float(location.radius_meters),
+                "geo_fencing_enabled": settings_obj.geo_fencing_enabled
+            }
+
+            # Cache for 10 minutes
+            cache.set(cache_key, company_data, timeout=600)
 
         # Geofencing disabled
-        if not check_if_enable.geo_fencing_enabled:
+        if not company_data["geo_fencing_enabled"]:
             return Response({
                 "success": True,
                 "status": "success",
@@ -304,12 +361,11 @@ class VerifyLocationView(APIView):
         distance = calculate_haversine_distance(
             float(user_lat),
             float(user_lon),
-            float(location.latitude),
-            float(location.longitude)
+            company_data["latitude"],
+            company_data["longitude"]
         )
 
-        # Check range
-        is_within_range = distance <= location.radius_meters
+        is_within_range = distance <= company_data["radius"]
 
         if is_within_range:
             return Response({
@@ -327,7 +383,7 @@ class VerifyLocationView(APIView):
             "message": "Outside work perimeter",
             "data": {
                 "distance": round(distance, 2),
-                "radius_limit": location.radius_meters
+                "radius_limit": company_data["radius"]
             }
         }, status=status.HTTP_403_FORBIDDEN)
 
@@ -481,7 +537,7 @@ def recognize(request):
 
         # Attendance logic
         if created:
-            success= True,
+            success= True
             status = "success"
             action = "check_in"
             message = "Checked in successfully"
