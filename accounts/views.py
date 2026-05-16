@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================
-# REGISTER / SIGNUP i change 5his for just test
+# REGISTER / SIGNUP change 5his for just test
 # ============================
 class RegisterView(APIView):
     """
